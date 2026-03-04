@@ -54,8 +54,9 @@ class Product(models.Model):
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
     description = models.TextField()
     
-    # Material & Care
-    material_composition = models.CharField(max_length=255) # e.g., "100% Cotton"
+    # Perfume Specifics
+    fragrance_family = models.CharField(max_length=255, null=True, blank=True)
+    concentration = models.CharField(max_length=255, null=True, blank=True)
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -70,9 +71,8 @@ class ProductVariant(models.Model):
     product = models.ForeignKey(Product, related_name='variants', on_delete=models.CASCADE)
     
     # Specifics
-    color_name = models.CharField(max_length=50) # e.g., "Midnight Blue"
-    color_hex = models.CharField(max_length=7,null=True,blank=True)    # e.g., "#000080"
-    size = models.CharField(max_length=20)      # e.g., "L" or "32/34"
+    volume = models.CharField(max_length=50, default="100ml") # e.g., "50ml", "100ml"
+
     is_active = models.BooleanField(default=True)
     
     # Commerce
@@ -122,10 +122,10 @@ class ProductVariant(models.Model):
         return self.reviews.aggregate(avg=Avg("rating"))["avg"] or 0
  
     def __str__(self):
-        return f"{self.product.name} - {self.color_name} - {self.size}"
+        return f"{self.product.name} - {self.volume}"
     
     class Meta:
-        unique_together = ('product', 'color_name', 'size')
+        unique_together = ('product', 'volume')
 
 
 class ProductImage(models.Model):

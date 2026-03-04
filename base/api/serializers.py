@@ -41,7 +41,7 @@ class VariantSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='product.category.name',read_only=True)
     class Meta:
         model = models.ProductVariant
-        fields = ['id','product_name','category_name', 'color_name', 'color_hex', 'size', 'price', 
+        fields = ['id','product_name','category_name', 'volume', 'price', 
                   'compare_at_price', 'stock', 'images', 'is_on_sale','is_active']
 
     def get_images(self, obj):
@@ -61,7 +61,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Product
         fields = [
-            'id', 'name', 'description', 'category', 'material_composition', 
+            'id', 'name', 'description', 'category', 'fragrance_family', 'concentration', 
             'variants', 'rating', 'created_at'
         ]
 
@@ -92,12 +92,11 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     variant_name = serializers.CharField(source='variant.product.name', read_only=True)
-    variant_size = serializers.CharField(source='variant.size', read_only=True)
-    variant_color = serializers.CharField(source='variant.color_name', read_only=True)
+    variant_volume = serializers.CharField(source='variant.volume', read_only=True)
     
     class Meta:
         model = models.OrderItem
-        fields = ['variant_name','variant_color','variant_size', 'quantity', 'price', 'subtotal','created_at']
+        fields = ['variant_name','variant_volume', 'quantity', 'price', 'subtotal','created_at']
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
@@ -210,7 +209,7 @@ class DashboardVariantCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ProductVariant
         # We ONLY include fields that the user actually sends
-        fields = ['id','color_name', 'color_hex', 'size', 'price', 'compare_at_price', 'stock']
+        fields = ['id','volume', 'price', 'compare_at_price', 'stock']
 
 
     def create(self, validated_data):
@@ -229,7 +228,7 @@ class DashboardProductCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Product
-        fields = ['id', 'name', 'category', 'description', 'material_composition', 'variants']
+        fields = ['id', 'name', 'category', 'description', 'fragrance_family', 'concentration', 'variants']
 
     def create(self, validated_data):
         variants_data = validated_data.pop('variants', [])
@@ -254,10 +253,10 @@ class DashboardProductUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Product
-        fields = ['name', 'category', 'description', 'material_composition', 'is_active']
+        fields = ['name', 'category', 'description', 'fragrance_family', 'concentration', 'is_active']
 
 class DashboardVariantUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ProductVariant
-        fields = ['color_name', 'color_hex', 'size', 'price', 'compare_at_price', 'stock', 'is_active']
+        fields = ['volume', 'price', 'compare_at_price', 'stock', 'is_active']
 
