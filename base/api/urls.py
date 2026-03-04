@@ -1,0 +1,73 @@
+from django.urls import path
+from . import views
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+urlpatterns = [
+    path('auth/me/',views.me),
+
+    # Auth
+    path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/signup/',views.register),
+    path('auth/logout/',views.logout),
+    path('auth/google/', views.google_login, name='google_login'),
+
+    # # Product
+    path('products/',views.get_all_products),
+    path('products/<str:pk>/',views.get_product_detail),
+    
+    # # Cart
+    path('cart/', views.get_cart, name='get_cart'),
+    path('cart/add/', views.add_to_cart, name='add_to_cart'),
+    path('cart/update/<int:item_id>/', views.update_cart_item, name='update_cart_item'),
+    path('cart/remove/<int:item_id>/', views.remove_from_cart, name='remove_from_cart'),
+    path('cart/clear/', views.clear_cart, name='clear_cart'),
+    path('cart/merge/', views.merge_cart, name='merge-cart'),
+
+    # # Order
+    path('orders/place/', views.place_order, name='place_order'),
+    path('orders/history/', views.get_my_orders, name='my_orders'),
+    
+
+    # # Wishlist
+    path('wishlist/', views.get_wishlist, name='get_wishlist'),
+    path('wishlist/toggle/', views.toggle_wishlist, name='toggle_wishlist'),
+
+    path('reviews/add/', views.add_review, name='add_review'),
+    path('products/<str:product_id>/reviews/', views.get_product_reviews, name='product_reviews'),
+
+    ################### Payment ###################### (Stripe)
+    path('payment/create-checkout-session/',views.create_checkout_session),
+    path('payment/webhook/stripe/',views.stripe_webhook),
+    ################################################## (PayPal)
+    path('paypal/create-order/', views.create_paypal_order, name='paypal-create'),
+    path('paypal/capture-order/', views.capture_paypal_order, name='paypal-capture'),
+
+
+    ## Dashboard
+    path('dashboard/orders/recent/',views.get_latest_orders),
+    path('dashboard/stats/',views.get_dashboard_stats),
+    path('dashboard/reviews/',views.get_all_reviews),
+    path('dashboard/order/<str:pk>/',views.order_detail_action),
+    path('dashboard/make-admin/',views.promote_user_to_admin),
+    path('dashboard/categories/', views.manage_categories, name='manage-categories'),
+
+    ###########
+
+    path('dashboard/products/create/', views.create_product_api, name='dash-create-product'),
+    # 2. Add Variants (Dynamic URL needs product_id)
+    path('dashboard/products/<int:product_id>/variants/add/', views.add_variants_to_product_api, name='dash-add-variants'),
+    # 3. Upload Image (Dynamic URL needs variant_id)
+    path('dashboard/variants/<int:variant_id>/upload-image/', views.upload_variant_image_api, name='dash-upload-image'),
+    # 4. Update Variant
+    # Edit / Deactivate Product
+    path('dashboard/products/<int:pk>/manage/', views.dashboard_product_detail_api, name='dash-manage-product'),
+    # Edit / Deactivate Variant
+    path('dashboard/variants/<int:variant_id>/manage/', views.dashboard_variant_detail_api, name='dash-manage-variant'),
+
+
+    # # Charts
+    path('charts/products/low/',views.get_low_chart_info),
+    path('charts/products/top-selling/',views.get_top_sales_chart_info),
+    path('charts/sales-orders/',views.get_sales_orders_chart),
+]

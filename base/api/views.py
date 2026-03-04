@@ -1,0 +1,1334 @@
+from rest_framework.decorators import api_view,permission_classes, parser_classes
+import json
+from django.http import HttpResponse
+import stripe
+from rest_framework.response import Response
+from django.db import transaction
+import requests
+import time
+from datetime import timedelta
+import datetime
+from django.utils import timezone
+from django.db.models.functions import TruncMonth
+from django.db.models import Count,F,Avg,Sum,Prefetch,Q,Min,Max, DecimalField, Value
+from rest_framework import status
+from .permissions import UnAuthenticated
+from django.db.models.functions import Coalesce
+from rest_framework.permissions import IsAdminUser,IsAuthenticated,AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
+from base import models
+from django.db import IntegrityError
+from . import serializers
+from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
+from decimal import Decimal
+from rest_framework.pagination import PageNumberPagination
+from django.db import connection
+from django.contrib.auth import get_user_model # <--- 1. Use this
+from django.conf import settings
+from django.http import JsonResponse
+from rest_framework.parsers import MultiPartParser, FormParser
+
+################################# Auth
+@api_view(['POST'])
+@permission_classes([UnAuthenticated])
+def register(request):
+    email = request.data.get('email').strip()
+    password1 = request.data.get('password1').strip()
+    password2 = request.data.get('password2').strip()
+    full_name = request.data.get('full_name').strip()
+
+    if password1 != password2:
+        return Response({"error":"passwords doesn't match"},status=status.HTTP_400_BAD_REQUEST)
+      
+
+    if models.User.objects.filter(email=email).exists():
+        return Response({"error":"Registeration failed,Try again"},status=status.HTTP_400_BAD_REQUEST)
+
+
+    try:
+        user = models.User.objects.create_user(
+        full_name = full_name,
+        email = email,
+        password= password1,
+        )
+
+        return Response({"message":"user created"},status=status.HTTP_201_CREATED)
+    
+    except:
+        return Response({"error":"error occurred try again"})
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def logout(request):
+    refresh_token = request.data.get('refresh')
+    if not refresh_token:
+        return Response({"error": "Refresh token required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        token = RefreshToken(refresh_token)
+        token.blacklist()
+        return Response({"message": "Logout successful"}, status=status.HTTP_205_RESET_CONTENT)
+    except Exception:
+        return Response({"error": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
+    
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me(request):
+    user = request.user
+    return Response({
+        "is_admin": user.is_staff,
+    })
+
+##################################
+
+
+### products
+class ProductPagination(PageNumberPagination):
+    page_size = 10  # Default items per page
+    page_size_query_param = 'page_size' # Frontend can override: /products/?page_size=50
+    max_page_size = 100
+
+    
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_all_products(request):
+    
+    # 1. Check if an Admin is requesting to see ALL items (including inactive)
+    show_inactive = request.query_params.get('all') == 'true' and request.user.is_staff
+    
+    if show_inactive:
+        # ADMIN VIEW: Show everything
+        queryset = models.Product.objects.annotate(
+            lowest_price=Min('variants__price'),
+            average_rating=Avg('reviews__rating'),
+            review_count=Count('reviews')
+        ).select_related('category').prefetch_related(
+            Prefetch('variants', queryset=models.ProductVariant.objects.prefetch_related('images'))
+        )
+    else:
+        # CUSTOMER VIEW: Hide inactive products and variants
+        queryset = models.Product.objects.filter(is_active=True).annotate(
+            lowest_price=Min('variants__price'),
+            average_rating=Avg('reviews__rating'),
+            review_count=Count('reviews')
+        ).select_related('category').prefetch_related(
+            Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
+        )
+
+    # 2. FILTERING LOGIC 
+    search_query = request.query_params.get('search', None)
+    if search_query:
+        queryset = queryset.filter(
+            Q(name__icontains=search_query) | 
+            Q(description__icontains=search_query)
+        )
+
+    category = request.query_params.get('category', None)
+    if category:
+        queryset = queryset.filter(category__name__iexact=category)
+
+    min_price = request.query_params.get('min_price', None)
+    max_price = request.query_params.get('max_price', None)
+
+    if min_price:
+        queryset = queryset.filter(lowest_price__gte=min_price)
+    if max_price:
+        queryset = queryset.filter(lowest_price__lte=max_price)
+
+    # 3. Apply Pagination
+    paginator = ProductPagination()
+    result_page = paginator.paginate_queryset(queryset, request)
+    
+    serializer = serializers.GetAllProductListSerializer(result_page, many=True)
+    return paginator.get_paginated_response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_product_detail(request, pk):
+    try:
+        # 1. Check if an Admin is requesting to see ALL data (including inactive)
+        show_inactive = request.query_params.get('all') == 'true' and request.user.is_staff
+
+        if show_inactive:
+            # ADMIN VIEW: Fetch the product and ALL of its variants, even if deactivated
+            product = models.Product.objects.prefetch_related(
+                Prefetch('variants', queryset=models.ProductVariant.objects.prefetch_related('images'))
+            ).get(pk=pk) # <-- Removed is_active=True here
+            
+        else:
+            # CUSTOMER VIEW: Strictly filter for active product and active variants
+            product = models.Product.objects.prefetch_related(
+                Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
+            ).get(pk=pk, is_active=True)
+
+        serializer = serializers.ProductDetailSerializer(product)
+        return Response(serializer.data)
+
+    except models.Product.DoesNotExist:
+        return Response({"error": "Product not found"}, status=404)
+###
+
+
+
+############################# Cart
+
+## HELPER FUNCTION
+def get_cart_from_request(request):
+    """Helper to fetch or create a cart based on User Auth or Device ID."""
+    if request.user.is_authenticated:
+        cart, _ = models.Cart.objects.get_or_create(customer=request.user)
+        return cart
+    else:
+        device_id = request.headers.get('X-Device-ID')
+        if not device_id:
+            raise ValueError("No Device ID provided for guest cart.")
+        
+        cart, _ = models.Cart.objects.get_or_create(device_id=device_id, customer__isnull=True)
+        return cart
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_cart(request):
+    try:
+        cart = get_cart_from_request(request)
+        serializer = serializers.CartSerializer(cart)
+        return Response(serializer.data)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=400)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def add_to_cart(request):
+    try:
+        cart = get_cart_from_request(request)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=400)
+
+    variant_id = request.data.get('variant_id')
+    quantity = int(request.data.get('quantity', 1))
+
+    variant = get_object_or_404(models.ProductVariant, id=variant_id, is_active=True)
+
+    # 1. Get current quantity in cart
+    try:
+        cart_item = models.CartItem.objects.get(cart=cart, variant=variant)
+        current_in_cart = cart_item.quantity
+    except models.CartItem.DoesNotExist:
+        cart_item = None
+        current_in_cart = 0
+
+    # 2. Check Stock
+    total_needed = current_in_cart + quantity
+    if total_needed > variant.stock:
+        left = variant.stock - current_in_cart
+        left = max(left, 0)
+        return Response(
+            {"error": f"Not enough stock. You have {current_in_cart}, can only add {left} more."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # 3. Create or Update
+    if cart_item:
+        cart_item.quantity += quantity
+        cart_item.price = variant.price
+        cart_item.save()
+    else:
+        models.CartItem.objects.create(
+            cart=cart,
+            variant=variant,
+            quantity=quantity,
+            price=variant.price
+        )
+
+    return Response(serializers.CartSerializer(cart).data, status=200)
+
+
+@api_view(['PATCH'])
+@permission_classes([AllowAny])
+def update_cart_item(request, item_id):
+    try:
+        cart = get_cart_from_request(request)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=400)
+
+    cart_item = get_object_or_404(models.CartItem, id=item_id, cart=cart)
+    new_quantity = int(request.data.get('quantity', 1))
+
+    if new_quantity < 1:
+        cart_item.delete()
+        return Response({"message": "Item removed"}, status=200)
+
+    if cart_item.variant.stock < new_quantity:
+        return Response({"error": "Exceeds available stock"}, status=400)
+
+    cart_item.quantity = new_quantity
+    cart_item.save()
+    
+    return Response(serializers.CartSerializer(cart).data)
+
+
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def remove_from_cart(request, item_id):
+    try:
+        cart = get_cart_from_request(request)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=400)
+
+    cart_item = get_object_or_404(models.CartItem, id=item_id, cart=cart)
+    cart_item.delete()
+    
+    return Response(serializers.CartSerializer(cart).data)
+
+
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def clear_cart(request):
+    try:
+        cart = get_cart_from_request(request)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=400)
+
+    cart.items.all().delete()
+    return Response({"message": "All items removed from cart"}, status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def merge_cart(request):
+    device_id = request.data.get('device_id')
+    
+    if not device_id:
+        return Response({"message": "No guest cart to merge"}, status=200)
+
+    try:
+        guest_cart = models.Cart.objects.get(device_id=device_id, customer__isnull=True)
+        user_cart, _ = models.Cart.objects.get_or_create(customer=request.user)
+
+        for guest_item in guest_cart.items.select_related('variant'):
+            user_item, created = models.CartItem.objects.get_or_create(
+                cart=user_cart,
+                variant=guest_item.variant,
+                defaults={'quantity': guest_item.quantity, 'price': guest_item.variant.price}
+            )
+            
+            if not created:
+                new_quantity = user_item.quantity + guest_item.quantity
+                if new_quantity > guest_item.variant.stock:
+                    user_item.quantity = guest_item.variant.stock
+                else:
+                    user_item.quantity = new_quantity
+                
+                user_item.price = guest_item.variant.price
+                user_item.save()
+
+        guest_cart.delete()
+        return Response({"message": "Carts merged successfully!"}, status=200)
+
+    except models.Cart.DoesNotExist:
+        return Response({"message": "Guest cart not found or already merged"}, status=200)
+
+
+#############################
+
+
+###### Orders
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def place_order(request):
+    cart = get_object_or_404(models.Cart, customer=request.user)
+    if not cart.items.exists():
+        return Response({"error": "Cart is empty"}, status=400)
+
+    serializer = serializers.CreateOrderSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    # --- 1. THE PRE-CHECK LOOP (Validate BEFORE touching the database) ---
+    for item in cart.items.select_related('variant__product'):
+        variant = item.variant
+        
+        # Check if active
+        if not variant.is_active or not variant.product.is_active:
+            return Response(
+                {"error": f"Sorry, {variant.product.name} ({variant.color_name}) is no longer available."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check stock
+        if variant.stock < item.quantity:
+            return Response(
+                {"error": f"Product {variant.product.name} is out of stock. Only {variant.stock} left."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    # --- 2. SAFE TO CREATE ---
+    # Since we passed the checks, we know it's safe to create the Order
+    order = models.Order.objects.create(
+        customer=request.user,
+        full_name=serializer.validated_data['full_name'],
+        full_address=serializer.validated_data['full_address'],
+        phone_number=serializer.validated_data.get('phone_number'),
+        country=serializer.validated_data.get('country'),
+        order_notes=serializer.validated_data.get('order_notes'),
+        status='pending'
+    )
+
+    # --- 3. CREATE ORDER ITEMS ---
+    for item in cart.items.all():
+        models.OrderItem.objects.create(
+            order=order,
+            variant=item.variant,
+            quantity=item.quantity,
+            price=item.price
+        )
+
+    return Response({"message": "Order placed successfully", "order_id": order.id}, status=201)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_my_orders(request):
+    """List all past orders for the logged-in user (Optimized)."""
+    
+    items_prefetch = Prefetch(
+        'items', 
+        queryset=models.OrderItem.objects.select_related('variant__product')
+    )
+
+    # 2. Main Query
+    orders = models.Order.objects.filter(customer=request.user)\
+        .order_by('-created_at')\
+        .prefetch_related(items_prefetch) # <--- This magic line fixes the N+1
+
+    serializer = serializers.OrderSerializer(orders, many=True)
+    return Response(serializer.data)
+
+################
+
+
+############################# Reviews
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_review(request):
+    """
+    User adds a review. 
+    Expects: { "product": 1, "rating": 5, "comment": "Great!" }
+    """
+    serializer = serializers.CreateReviewSerializer(
+        data=request.data, 
+        context={'request': request}
+    )
+    
+    if serializer.is_valid():
+        try:
+            serializer.save(customer=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except IntegrityError:
+            return Response({"error": "You have already reviewed this product."}, status=400)
+            
+    return Response(serializer.errors, status=400)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_product_reviews(request, product_id):
+    """Get all reviews for a specific product."""
+    reviews = models.Review.objects.filter(product_id=product_id).select_related('customer')
+    serializer = serializers.ReviewSerializer(reviews, many=True)
+    return Response(serializer.data)
+
+
+############################# Wishlist
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_wishlist(request):
+    """
+    Get current user's wishlist.
+    Optimized: Prefetches products -> variants -> images for the cards.
+    """
+    try:
+        # We need to prefetch the same things GetAllProductListSerializer needs
+        # (variants, lowest price, images, etc)
+        wishlist = models.WishList.objects.prefetch_related(
+            Prefetch('products', queryset=models.Product.objects.filter(is_active=True).annotate(
+                lowest_price=Min('variants__price'),
+                average_rating=Avg('reviews__rating'),
+                review_count=Count('reviews')
+            ).prefetch_related(
+                Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
+            ))
+        ).get(customer=request.user)
+        
+        serializer = serializers.WishlistSerializer(wishlist)
+        return Response(serializer.data)
+        
+    except models.WishList.DoesNotExist:
+        # Return empty structure if no wishlist exists yet
+        return Response({"products": []})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_wishlist(request):
+    """
+    Add or Remove item from wishlist. Acts as a toggle.
+    Expects: { "product_id": 5 }
+    """
+    product_id = request.data.get('product_id')
+    product = get_object_or_404(models.Product, id=product_id)
+    
+    wishlist, created = models.WishList.objects.get_or_create(customer=request.user)
+    
+    if product in wishlist.products.all():
+        wishlist.products.remove(product)
+        return Response({"message": "Removed from wishlist", "added": False})
+    else:
+        wishlist.products.add(product)
+        return Response({"message": "Added to wishlist", "added": True})
+
+
+
+############## Payment Integration (Paypal) #############
+
+def get_paypal_access_token():
+    """Helper to get a fresh access token from PayPal."""
+    url = f"{settings.PAYPAL_API_URL}/v1/oauth2/token"
+    resp = requests.post(
+        url,
+        auth=(settings.PAYPAL_CLIENT_ID, settings.PAYPAL_SECRET),
+        data={'grant_type': 'client_credentials'}
+    )
+    resp.raise_for_status()
+    return resp.json()['access_token']
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_paypal_order(request):
+    access_token = get_paypal_access_token()
+    
+    # 1. GET THE ORDER ID FROM YOUR FRONTEND
+    # You must send this from your React/Vue/HTML page
+    django_order_id = request.data.get('order_id')
+    
+    # Validation: Make sure we actually got an ID
+    if not django_order_id:
+        return JsonResponse({'error': 'Order ID is required'}, status=400)
+
+    # Fetch the order to get the real price (Security)
+    try:
+        order = models.Order.objects.get(id=django_order_id, customer=request.user)
+    except models.Order.DoesNotExist:
+        return JsonResponse({'error': 'Order not found'}, status=404)
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {access_token}',
+    }
+    
+    data = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "amount": {
+                "currency_code": "USD",
+                "value": str(order.total_price) # Use the real database price!
+            },
+            # --- THE MISSING PIECE ---
+            # We attach the ID here so we can read it back later
+            "custom_id": str(order.id) 
+            # -------------------------
+        }],
+        "application_context": {
+            "return_url": settings.DOMAIN_URL,
+            "cancel_url": settings.DOMAIN_URL+"payment-cancel/"
+        }
+    }
+
+    resp = requests.post(
+        f"{settings.PAYPAL_API_URL}/v2/checkout/orders", 
+        headers=headers, 
+        json=data
+    )
+    
+    return JsonResponse(resp.json())
+
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def capture_paypal_order(request):
+    # 1. Get the PayPal Order ID from the frontend
+    paypal_order_id = request.data.get('orderID') 
+    
+    # 2. Get Access Token (Helper function we wrote earlier)
+    access_token = get_paypal_access_token()
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {access_token}',
+    }
+
+    # 3. Ask PayPal to capture the payment
+    url = f"{settings.PAYPAL_API_URL}/v2/checkout/orders/{paypal_order_id}/capture"
+    resp = requests.post(url, headers=headers)
+    
+    result = resp.json()
+    
+    print("PAYPAL ERROR DETAILS:", result)
+
+    # 4. Check if PayPal says "COMPLETED"
+    if result.get('status') == 'COMPLETED':
+        
+        try:
+            # --- CRITICAL FIX: GET YOUR DJANGO ID ---
+            # We look for the 'custom_id' we attached during the Create step.
+            # It's usually in purchase_units[0].payments.captures[0].custom_id
+            
+            # Use safe navigation in case structure varies slightly
+            purchase_unit = result['purchase_units'][0]
+            
+            if 'custom_id' in purchase_unit:
+                django_order_id = purchase_unit['custom_id']
+            elif 'payments' in purchase_unit:
+                django_order_id = purchase_unit['payments']['captures'][0]['custom_id']
+            else:
+                # Fallback: If for some reason custom_id is missing, 
+                # we hope the frontend sent it in the request body as a backup.
+                django_order_id = request.data.get('django_order_id')
+
+            if not django_order_id:
+                return JsonResponse({'error': 'Could not link PayPal transaction to Order'}, status=400)
+
+            # --- DATABASE UPDATES (ATOMIC) ---
+            with transaction.atomic():
+                # 1. Lock the order row to prevent race conditions
+                order = models.Order.objects.select_for_update().get(id=django_order_id)
+
+                # 2. Prevent double-payment processing
+                if order.status == 'paid':
+                     return JsonResponse({'message': 'Order already processed'}, status=200)
+
+                # 3. Mark as paid
+                order.status = 'paid'
+                order.save()
+
+                # 4. Decrease Stock Safely using F()
+                for item in order.items.all():
+                    # "Subtract quantity from current DB value"
+                    variant = item.variant
+                    if variant.stock < item.quantity:
+                        raise ValueError(f"Insufficient stock for {variant}")
+                    item.variant.stock = F('stock') - item.quantity
+                    item.variant.save()
+
+                # 5. Clear Cart
+                # We use filter().delete() which handles "does not exist" cases gracefully
+                models.Cart.objects.filter(customer=order.customer).delete()
+                
+                # 6. (Optional) Save the Transaction ID for records
+                models.Payment.objects.create(
+                    customer=order.customer,
+                    order=order,
+                    amount=order.total_price,
+                    method='paypal',
+                    transaction_id=paypal_order_id
+                )
+
+            return JsonResponse({'message': 'Order completed!', 'data': result})
+
+        except models.Order.DoesNotExist:
+            return JsonResponse({'error': 'Order ID not found in database'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+    # If status is not COMPLETED
+    return JsonResponse({'error': 'Payment not completed', 'details': result}, status=400)
+
+
+
+
+############## Payment Integration (Stripe) #############
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_checkout_session(request):
+    """
+    Creates the Stripe session and returns the URL to redirect the user to.
+    """
+    user = request.user
+    order_id = request.data.get('order_id') # Changed from 'django_order_id' to match frontend usually
+    
+    if not order_id:
+        return Response({"error": "order_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        order = models.Order.objects.get(id=order_id, customer=user)
+    except models.Order.DoesNotExist:
+        return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
+    
+    # Check if already paid
+    if order.status == 'paid':
+         return Response({"error": "Order is already paid"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Build line items
+    line_items = []
+    for item in order.items.all():
+        # Determine the correct name (handle variants if they exist)
+        product_name = item.variant.product.name if hasattr(item, 'variant') else item.product.name
+        
+        line_items.append({
+            'price_data': {
+                'currency': 'usd',
+                'product_data': {
+                    'name': product_name,
+                    # Optional: Add image if your model has it
+                    # 'images': [item.variant.image.url], 
+                },
+                # Price must be in Cents (e.g., $10.00 -> 1000)
+                # We use item.variant.price if available, or item.price
+                'unit_amount': int(item.variant.price * 100), 
+            },
+            'quantity': item.quantity,
+        })
+
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=line_items,
+            mode='payment',
+            client_reference_id=str(order.id), # Key link for the webhook
+            success_url=request.data.get('success_url', settings.DOMAIN_URL + 'payment-success/'),
+            cancel_url=request.data.get('cancel_url', settings.DOMAIN_URL + 'payment-cancel/'),
+            metadata={
+                'order_id': str(order.id),
+                'customer_id': str(user.id)
+            }
+        )
+
+        return Response({'url': checkout_session.url})
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- WEBHOOK LISTENER ---
+
+@csrf_exempt
+def stripe_webhook(request):
+    """
+    Standard Django view (not DRF) to handle raw request body safely.
+    """
+    payload = request.body
+    sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+    event = None
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError as e:
+        return Response({"error":e},status=400) # Invalid payload
+    except stripe.error.SignatureVerificationError as e:
+        return Response({"error":e},status=400) # Invalid signature
+
+    # Handle the "Payment Successful" event
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        
+        # 1. Get the Order ID
+        order_id = session.get('client_reference_id') or session.get('metadata', {}).get('order_id')
+        
+        if order_id:
+            try:
+                # 2. Start Atomic Transaction (Safety Lock)
+                with transaction.atomic():
+                    order = models.Order.objects.select_for_update().get(id=order_id)
+                    
+                    # Prevent double processing
+                    if order.status == 'paid':
+                        return Response({"error":e},status=200)
+
+                    # 3. Mark as Paid
+                    order.status = 'paid'
+                    order.save()
+                    
+                    # 4. Decrease Stock (Using F objects for race-condition safety)
+                    for item in order.items.select_related('variant'):
+                        item.variant.stock = F('stock') - item.quantity
+                        item.variant.save()
+
+                    # 5. Clear the User's Cart
+                    models.Cart.objects.filter(customer=order.customer).delete()
+
+                    # 6. Create Payment Record
+                    models.Payment.objects.create(
+                        customer=order.customer,
+                        order=order,
+                        amount=Decimal(session['amount_total']) / 100, # Convert cents back to dollars
+                        method='stripe',
+                        transaction_id=session['payment_intent']
+                    )
+                    
+                    print(f"✅ Order {order_id} fully processed via Stripe.")
+
+            except models.Order.DoesNotExist:
+                print(f"❌ Order {order_id} not found during webhook.")
+            except Exception as e:
+                print(f"❌ Webhook Error: {str(e)}")
+                return Response({"error":e},status=500)
+
+    return HttpResponse(status=200)
+
+
+
+
+############### DASHBOARD ##################
+
+## ADD SOMETHINGS ##
+
+from rest_framework.permissions import IsAdminUser
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny]) # SECURITY: Only staff/admins can access this
+def manage_categories(request):
+    
+    # --- GET: The frontend asks for the full list for the dropdown ---
+    if request.method == 'GET':
+        # order_by('name') makes it alphabetical for the frontend dropdown
+        categories = models.Category.objects.all().order_by('name')
+        serializer = serializers.CategorySerializer(categories, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # --- POST: The admin types a new name and hits "Save" ---
+    elif request.method == 'POST':
+        if not request.user.is_staff:
+            return Response({"error":"You can't perform this action"},status=status.HTTP_403_FORBIDDEN)
+        serializer = serializers.CategorySerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            # We return a 201 Created and the exact data of the new category
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+        # If they send blank data or something invalid, return the error
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser]) # 1. Must be at least Staff
+def promote_user_to_admin(request):
+    """
+    Promotes a customer to Staff status.
+    ONLY a Superuser can do this to prevent 'coups'.
+    """
+    # 2. Security Check: Are YOU a superuser?
+    if not request.user.is_superuser:
+        return Response(
+            {"error": "Only Superusers can promote other users to Admin."},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    email = request.data.get('email')
+    user = get_object_or_404(models.User, email=email)
+
+    # 3. Promote
+    if user.is_staff == False:
+        user.is_staff = True
+        user.save()
+    else:
+        return Response({"message":"User is already an admin (Staff)"},status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"message": f"{user.full_name} is now an Admin (Staff)."})
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_latest_orders(request):
+    orders = (
+    models.Order.objects
+    .select_related('customer') # fixes customer.email
+    .prefetch_related(
+        Prefetch(
+            'items',
+            queryset=models.OrderItem.objects.select_related('variant')
+        )
+    )
+    .order_by('-created_at')
+)
+    paginator = PageNumberPagination()
+    paginator.page_size = 10  # Set how many orders you want per page
+    
+    # 3. Create the "Page" (slice the queryset based on the URL ?page=x)
+    result_page = paginator.paginate_queryset(orders, request)
+
+    # 4. Serialize ONLY the data for the current page
+    serializer = serializers.DashBoardOrderSerializer(result_page, many=True)
+
+    # 5. Return the response with pagination metadata (Next, Previous, Count)
+    return paginator.get_paginated_response(serializer.data)
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_all_orders_num(request):
+    # This runs ONE query instead of SIX
+    data = models.Order.objects.aggregate(
+        orders=Count('id'),
+        pending=Count('id', filter=Q(status='pending')),
+        paid=Count('id', filter=Q(status='paid')),
+        delivered=Count('id', filter=Q(status='delivered')),
+        shipped=Count('id', filter=Q(status='shipped')),
+        cancelled=Count('id', filter=Q(status='cancelled')),
+    )
+    return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_dashboard_stats(request):
+    # 1. Total Sales
+    total_sales = models.Payment.objects.aggregate(total=Sum('amount'))['total'] or 0
+    
+    # 2. Total Products & Stock (One query)
+    product_stats = models.Product.objects.aggregate(
+        count=Count('id'),
+        total_stock=Sum('variants__stock')
+    )
+    
+    # 3. Total Users
+    users_count = models.User.objects.count()
+    
+    # 4. Order Stats (The optimized query from above)
+    order_stats = models.Order.objects.aggregate(
+        total=Count('id'),
+        pending=Count('id', filter=Q(status='pending')),
+        paid=Count('id', filter=Q(status='paid')), # Example
+        delivered=Count('id', filter=Q(status='delivered')),
+        shipped=Count('id', filter=Q(status='shipped')),
+        cancelled=Count('id', filter=Q(status='cancelled')),
+        # ... add others
+    )
+
+    return Response({
+        "sales": total_sales,
+        "products": product_stats,
+        "users": users_count,
+        "orders": order_stats
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_all_reviews(request):
+    # 1. Fix the query: select_related (for ForeignKeys) + order_by (Required for pagination)
+    reviews = models.Review.objects.select_related('customer', 'product').order_by('-created_at')
+    
+    # 2. Initialize the Paginator
+    paginator = PageNumberPagination()
+    paginator.page_size = 10  # You can adjust how many reviews per page here
+    
+    # 3. Slice the queryset based on the page the frontend requested
+    paginated_reviews = paginator.paginate_queryset(reviews, request)
+    
+    # 4. Serialize ONLY the 20 reviews on this specific page
+    serializer = serializers.DashBoardReviewSerializer(paginated_reviews, many=True)
+    
+    # 5. Return the special paginated response
+    return paginator.get_paginated_response(serializer.data)
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAdminUser])
+def order_detail_action(request, pk):
+    order = get_object_or_404(models.Order.objects.prefetch_related('items__variant'), id=pk)
+
+    if request.method == 'GET':
+        serializer = serializers.DashBoardOrderSerializer(order)
+        return Response({'data': serializer.data})
+
+    elif request.method == 'PATCH':
+        serializer = serializers.DashBoardOrderStatusSerializer(order, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'message': 'Status updated', 'status': order.status})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#######################
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser]) # Protect your dashboard!
+def create_product_api(request):
+    """
+    Creates the main product entry (Name, Description, Category).
+    Does NOT handle variants or images yet.
+    """
+    # We use the serializer just for validation and saving the base fields
+    serializer = serializers.DashboardProductCreateSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        product = serializer.save()
+        
+        # Return the ID so the frontend knows where to attach variants next
+        return Response({
+            "message": "Product created successfully",
+            "product_id": product.id,
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
+        
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------
+# STEP 2: Add Variants (Supports Bulk Creation)
+# ---------------------------------------------------------
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def add_variants_to_product_api(request, product_id):
+    product = get_object_or_404(models.Product, id=product_id)
+    
+    # Check if bulk or single
+    is_many = isinstance(request.data, list)
+    
+    # Pass context so the serializer knows which product to attach to
+    serializer = serializers.DashboardVariantCreateSerializer(
+        data=request.data, 
+        many=is_many,
+        context={'product_id': product.id} 
+    )
+    
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------
+# STEP 3: Upload Image for a Specific Variant
+# ---------------------------------------------------------
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+@parser_classes([MultiPartParser, FormParser]) # Essential for handling file uploads
+def upload_variant_image_api(request, variant_id):
+    """
+    Uploads a single image for a specific variant.
+    Key in FormData should be 'img'.
+    """
+    # 1. Get the variant
+    variant = get_object_or_404(models.ProductVariant, id=variant_id)
+    
+    # 2. Check if file is present
+    if 'img' not in request.FILES:
+        return Response({"error": "No image file provided (key 'img' missing)."}, status=400)
+
+    # 3. Manual creation is often easier for simple file uploads than serializers
+    try:
+        image_file = request.FILES['img']
+        
+        # Create the image instance
+        img_instance = models.ProductImage.objects.create(
+            variant=variant,
+            img=image_file
+        )
+        
+        return Response({
+            "message": "Image uploaded",
+            "url": img_instance.img.url
+        }, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+#### i will adjust after some shits
+
+# --- PRODUCT EDIT & DEACTIVATE ---
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAdminUser])
+def dashboard_product_detail_api(request, pk):
+    product = get_object_or_404(models.Product, id=pk)
+
+    # --- DELETE LOGIC ---
+    if request.method == 'DELETE':
+        
+        # Check if the frontend requested a HARD delete
+        is_hard_delete = request.query_params.get('hard') == 'true'
+
+        if is_hard_delete:
+            # 1. THE SAFETY GUARD: Has anyone bought any variant of this product?
+            # We use the double underscore (variant__product) to look across the relationships
+            if models.OrderItem.objects.filter(variant__product=product).exists():
+                return Response(
+                    {"error": "Cannot hard delete this product because one or more of its variants exist in customer orders. Please deactivate it instead."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # 2. Safe to Hard Delete
+            product.delete()
+            return Response({"message": "Product permanently deleted."}, status=status.HTTP_200_OK)
+            
+        else:
+            # 3. Normal Soft Delete (Deactivate)
+            product.is_active = False
+            product.save()
+            return Response({"message": "Product deactivated successfully."}, status=status.HTTP_200_OK)
+
+    # --- EDIT LOGIC ---
+    if request.method == 'PATCH':
+        serializer = serializers.DashboardProductUpdateSerializer(
+            instance=product, 
+            data=request.data, 
+            partial=True 
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Product updated", "data": serializer.data})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# --- VARIANT EDIT & DEACTIVATE ---
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAdminUser])
+def dashboard_variant_detail_api(request, variant_id):
+    variant = get_object_or_404(models.ProductVariant, id=variant_id)
+
+    # --- DELETE LOGIC ---
+    if request.method == 'DELETE':
+        
+        # Check if the frontend requested a HARD delete
+        is_hard_delete = request.query_params.get('hard') == 'true'
+
+        if is_hard_delete:
+            # 1. THE SAFETY GUARD: Has anyone bought this?
+            if models.OrderItem.objects.filter(variant=variant).exists():
+                return Response(
+                    {"error": "Cannot hard delete this variant because it exists in customer orders. Please deactivate it instead."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # 2. Safe to Hard Delete
+            variant.delete()
+            return Response({"message": "Variant permanently deleted."}, status=status.HTTP_200_OK)
+            
+        else:
+            # 3. Normal Soft Delete (Deactivate)
+            variant.is_active = False
+            variant.save()
+            return Response({"message": "Variant deactivated successfully."}, status=status.HTTP_200_OK)
+
+    # --- EDIT LOGIC ---
+    if request.method == 'PATCH':
+        serializer = serializers.DashboardVariantUpdateSerializer(
+            instance=variant, 
+            data=request.data, 
+            partial=True
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Variant updated", "data": serializer.data})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+########### Dashboard Charts
+# ---------------------------------------------------------
+# 1. LOW STOCK PRODUCTS
+# ---------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_low_chart_info(request):
+    """
+    Returns specific VARIANTS that are low in stock (<= 20).
+    Sorted by lowest stock first.
+    """
+    # 1. Query Variants directly
+    # We use select_related('product') to avoid N+1 queries when fetching names
+    low_variants = (
+        models.ProductVariant.objects
+        .filter(stock__lte=20,is_active=True)
+        .select_related('product') 
+        .order_by('stock')
+    )
+
+    # 2. Serialize manually for the chart
+    # We combine Product Name + Color + Size so the admin knows exactly which item it is.
+    data = []
+    for v in low_variants:
+        full_name = f"{v.product.name} ({v.color_name}/{v.size})"
+        
+        data.append({
+            "id": v.id,
+            "name": full_name, # "T-Shirt (Red/S)"
+            "stock": v.stock
+        })
+        
+    return Response({"variants": data}, status=status.HTTP_200_OK)
+
+# ---------------------------------------------------------
+# 2. TOP SELLING PRODUCTS
+# ---------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_top_sales_chart_info(request):
+    """
+    Returns top selling styles (Product + Color), ignoring size.
+    """
+    top_styles = (
+        models.ProductVariant.objects
+        .filter(orderitem__order__status='paid') # Only paid orders
+        
+        # 1. GROUP BY Product Name and Color Name
+        # This merges "Red S", "Red M", "Red L" into one "Red" entry
+        .values('product__name', 'color_name') 
+        
+        # 2. Sum the quantity for that group
+        .annotate(total_sold=Sum('orderitem__quantity'))
+        
+        # 3. Sort by highest sales
+        .order_by('-total_sold')[:5]
+    )
+
+    return Response({"topSelling": top_styles}, status=status.HTTP_200_OK)
+
+# ---------------------------------------------------------
+# 3. SALES & ORDERS CHART (Last 6 Months)
+# ---------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_sales_orders_chart(request):
+    try:
+        # 1. Date Calculation
+        today = timezone.now().date()
+        six_months_ago = today - datetime.timedelta(days=180)
+        
+        # 2. Database Query
+        sales_data = (
+            models.Order.objects
+            .filter(created_at__gte=six_months_ago)
+            .annotate(month=TruncMonth('created_at'))
+            .values('month')
+            .annotate(
+                total_orders=Count('id', distinct=True),
+                # FIX: Explicitly set output_field=DecimalField()
+                total_sales=Coalesce(
+                    Sum(
+                        F('items__quantity') * F('items__price'), 
+                        output_field=DecimalField()
+                    ),
+                    Value(0, output_field=DecimalField())
+                )
+            )
+            .order_by('month')
+        )
+
+        # 3. Create Lookup Dictionary
+        sales_dict = {}
+        for entry in sales_data:
+            month_val = entry['month']
+            
+            # Safe String/Date handling
+            if isinstance(month_val, str):
+                key = month_val[:7] 
+            elif isinstance(month_val, datetime.date):
+                key = month_val.strftime('%Y-%m')
+            else:
+                continue 
+
+            sales_dict[key] = {
+                "orders": entry['total_orders'],
+                "sales": entry['total_sales']
+            }
+
+        # 4. Fill Empty Months
+        final_data = []
+        for i in range(5, -1, -1):
+            target_year = today.year
+            target_month = today.month - i
+            
+            while target_month <= 0:
+                target_month += 12
+                target_year -= 1
+                
+            target_date = datetime.date(target_year, target_month, 1)
+            key = target_date.strftime('%Y-%m')     
+            display_name = target_date.strftime('%B') 
+
+            stats = sales_dict.get(key, {"orders": 0, "sales": 0})
+
+            final_data.append({
+                "name": display_name,
+                "orders": stats['orders'],
+                "sales": stats['sales']
+            })
+
+        return Response(final_data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        # Print error to console for debugging
+        print(f"Error in chart: {str(e)}")
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+
+########## GOOGLE #############
+
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
+GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
+
+User = get_user_model() # <--- 2. Load your custom model
+
+@api_view(['POST'])
+@permission_classes([AllowAny]) 
+def google_login(request):
+    token = request.data.get('credential')
+    
+    if not token:
+        return Response({"error": "No token provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Verify token with Google
+        idinfo = id_token.verify_oauth2_token(
+            token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID
+        )
+
+        email = idinfo['email']
+        first_name = idinfo.get('given_name', '')
+        last_name = idinfo.get('family_name', '')
+
+        # Get or Create the user (No username needed!)
+        user, created = User.objects.get_or_create(email=email, defaults={
+            'first_name': first_name,
+            'last_name': last_name,
+        })
+
+        if created:
+            user.set_unusable_password()
+            user.save()
+
+        # Generate JWT Tokens
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+            },
+            'is_new_user': created
+        }, status=status.HTTP_200_OK)
+
+    except ValueError:
+        return Response({"error": "Invalid Google token"}, status=status.HTTP_400_BAD_REQUEST)
