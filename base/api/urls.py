@@ -42,6 +42,9 @@ urlpatterns = [
     ################################################## (PayPal)
     path('paypal/create-order/', views.create_paypal_order, name='paypal-create'),
     path('paypal/capture-order/', views.capture_paypal_order, name='paypal-capture'),
+    ################################################## (Paymob)
+    path('payment/paymob/create-checkout/', views.paymob_checkout, name='paymob-create-checkout'),
+    path('payment/webhook/paymob/', views.paymob_webhook, name='paymob-webhook'),
 
 
     ## Dashboard

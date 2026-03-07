@@ -168,7 +168,7 @@ class Order(DirtyFieldsMixin,models.Model):
     # Biling details
     full_name = models.CharField(max_length=200,null=True)
     full_address = models.CharField(max_length=300,null=True)
-    order_notes = models.TextField(null=True)
+    order_notes = models.TextField(blank=True,null=True)
     phone_number = models.CharField(max_length=25,null=True)
     country = models.CharField(max_length=100,null=True)
 
@@ -226,7 +226,8 @@ class Payment(models.Model):
         ("cash","Cash"),
         ("paypal","PayPal"),
         ("bank_transfer","Bank Transfer"),
-        ("stripe","Stripe")
+        ("stripe","Stripe"),
+        ("paymob", "Paymob"),
     ]
 
     method = models.CharField(max_length=50,choices=METHOD_CHOICES)

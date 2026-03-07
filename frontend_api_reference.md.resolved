@@ -1,0 +1,234 @@
+# Frontend API Reference (Perfume Store)
+
+This document provides a reference for the required JSON bodies to send in the `POST`, `PATCH`, and `PUT` requests from your frontend application to the Django backend.
+
+> [!NOTE] 
+> All requests must have `Content-Type: application/json` unless specified otherwise (like image uploads). Protected routes require the `Authorization: Bearer <access_token>` header. Guest cart operations may require a `X-Device-ID` header.
+
+## 1. Authentication (`/api/auth/...`)
+
+### `POST /api/auth/signup/`
+Registers a new user.
+```json
+{
+  "email": "user@example.com",
+  "full_name": "John Doe",
+  "password1": "strongpassword123",
+  "password2": "strongpassword123"
+}
+```
+
+### `POST /api/auth/login/`
+Returns a JWT access and refresh token.
+```json
+{
+  "email": "user@example.com",
+  "password": "strongpassword123"
+}
+```
+
+### `POST /api/auth/token/refresh/`
+Refreshes an expired access token using the refresh token.
+```json
+{
+  "refresh": "eyJhbGciOiJIUzI1NiJ9..."
+}
+```
+
+### `POST /api/auth/logout/`
+Blacklists the refresh token.
+```json
+{
+  "refresh": "eyJhbGciOiJIUzI1NiJ9..."
+}
+```
+
+---
+
+## 2. Cart (`/api/cart/...`)
+
+### `POST /api/cart/add/`
+Adds an item to the cart. If the user is unauthenticated, ensure you send the `X-Device-ID` header.
+```json
+{
+  "variant_id": 5,
+  "quantity": 2
+}
+```
+
+### `PATCH /api/cart/update/<item_id>/`
+Updates the quantity of a specific cart item matching the `item_id` (not the variant_id). Sending a quantity of `< 1` deletes the item.
+```json
+{
+  "quantity": 3
+}
+```
+
+### `POST /api/cart/merge/`
+Merges a guest cart into an authenticated user's cart (call this immediately after a successful login).
+```json
+{
+  "device_id": "your-locally-generated-guest-uuid"
+}
+```
+
+---
+
+## 3. Order & Checkout (`/api/orders/...`)
+
+### `POST /api/orders/place/`
+Converts the active cart into a static Order and clears the cart components temporarily. Returns an `order_id` to be used for Stripe/Paypal session creation.
+```json
+{
+  "full_name": "John Doe",
+  "full_address": "123 Perfume Lane, Apt 4",
+  "phone_number": "+1234567890",
+  "country": "United States",
+  "order_notes": "Please leave at the front door."
+}
+```
+
+---
+
+## 4. Payment Integration 
+
+### `POST /api/payment/create-checkout-session/` (Stripe)
+Initiates a Stripe checkout session. Returns a `{ "url": "..." }` to redirect the user to Stripe.
+```json
+{
+  "order_id": "uuid-of-order-from-place-order",
+  "success_url": "https://yourfrontend.com/payment-success/",
+  "cancel_url": "https://yourfrontend.com/payment-cancel/"
+}
+```
+
+### `POST /api/paypal/create-order/` (PayPal)
+Creates a PayPal order intent. 
+```json
+{
+  "order_id": "uuid-of-order-from-place-order"
+}
+```
+
+### `POST /api/paypal/capture-order/` (PayPal)
+Captures the paypal payment after the user approves it on the frontend.
+```json
+{
+  "orderID": "paypal-provided-order-id"
+}
+```
+
+### `POST /api/payment/paymob/create-checkout/` (Paymob)
+Initiates a Paymob checkout session. Returns the iframe checkout UI URL.
+```json
+{
+  "order_id": "uuid-of-order-from-place-order"
+}
+```
+**Response Format:**
+```json
+{
+  "url": "https://accept.paymob.com/api/acceptance/iframes/123456?payment_token=zxcasd...",
+  "payment_token": "zxcasd...",
+  "iframe_id": "123456"
+}
+```
+
+---
+
+## 5. User Actions (Reviews & Wishlist)
+
+### `POST /api/wishlist/toggle/`
+Adds to or removes from the wishlist.
+```json
+{
+  "product_id": 12
+}
+```
+
+### `POST /api/reviews/add/`
+Adds a review for a specific product.
+```json
+{
+  "product": 12,
+  "rating": 5,
+  "comment": "Smells amazing!"
+}
+```
+
+---
+
+## 6. Admin Dashboard Actions (`/api/dashboard/...`)
+
+*Note: Requires Admin / Staff Privileges.*
+
+### `POST /api/dashboard/categories/`
+Creates a brand new product category.
+```json
+{
+  "name": "Men's Fragrances"
+}
+```
+
+### `POST /api/dashboard/products/create/`
+Creates a new Product. Note the newly updated perfume fields. You can now pass the string `name` for `category` instead of the ID. Optionally, you can pass a variants array to create variants at the same time.
+```json
+{
+  "name": "Sauvage",
+  "category": "Men's Fragrances", 
+  "description": "A radically fresh composition.",
+  "fragrance_family": "Woody",
+  "concentration": "Eau de Parfum",
+  "variants": [
+    {
+      "volume": "100ml",
+      "price": "120.00",
+      "compare_at_price": "140.00",
+      "stock": 50
+    }
+  ]
+}
+```
+
+### `PATCH /api/dashboard/products/<product_id>/manage/`
+Updates an existing product. 
+**Important**: Note that `category` lookup works via a string `name` for the patch request rather than the ID, based on the `SlugRelatedField` configuration in the backend serializer.
+```json
+{
+  "name": "Sauvage Classic",
+  "category": "Men's Fragrances", 
+  "description": "A radically fresh composition.",
+  "fragrance_family": "Woody",
+  "concentration": "Eau de Parfum",
+  "is_active": true
+}
+```
+
+### `POST /api/dashboard/products/<product_id>/variants/add/`
+Adds a brand new variant to an existing product.
+```json
+{
+  "volume": "200ml",
+  "price": "180.00",
+  "compare_at_price": null,
+  "stock": 15
+}
+```
+
+### `PATCH /api/dashboard/variants/<variant_id>/manage/`
+Updates an existing variant.
+```json
+{
+  "volume": "200ml",
+  "price": "175.00",
+  "compare_at_price": "180.00",
+  "stock": 10,
+  "is_active": true
+}
+```
+
+### `POST /api/dashboard/variants/<variant_id>/upload-image/`
+Uploads an image for the variant.
+> **IMPORTANT: Do NOT send this as JSON.**
+> You must send this request as `multipart/form-data`.
+> Send one field: `img` (File Blob)

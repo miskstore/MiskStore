@@ -185,6 +185,12 @@ STRIPE_SECRET_KEY = os.environ.get('stripe_secret_key')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('stripe_publishable_key')
 # You will give this to the frontend team
 STRIPE_WEBHOOK_SECRET = os.environ.get('stripe_webhook_secret', default='')
+
+PAYMOB_API_KEY = os.environ.get('PAYMOB_API_KEY')
+PAYMOB_INTEGRATION_ID = os.environ.get('PAYMOB_INTEGRATION_ID')
+PAYMOB_HMAC_SECRET = os.environ.get('PAYMOB_HMAC_SECRET')
+PAYMOB_IFRAME_ID = os.environ.get('PAYMOB_IFRAME_ID')
+
 # Webhook secret for verifying Stripe webhook events
 DOMAIN_URL = os.environ.get('domain_url')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')

@@ -225,6 +225,14 @@ class DashboardVariantCreateSerializer(serializers.ModelSerializer):
 class DashboardProductCreateSerializer(serializers.ModelSerializer):
     # We include variants here so we can create them in one go if we want
     variants = DashboardVariantCreateSerializer(many=True, required=False)
+    
+    # Accept the category by its string name instead of ID
+    category = serializers.SlugRelatedField(
+        slug_field='name',
+        queryset=models.Category.objects.all(),
+        allow_null=True,
+        required=False
+    )
 
     class Meta:
         model = models.Product

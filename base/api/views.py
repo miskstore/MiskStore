@@ -789,7 +789,202 @@ def stripe_webhook(request):
 
 
 
-############### DASHBOARD ##################
+############## Payment Integration (Paymob) #############
+import hmac
+import hashlib
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def paymob_checkout(request):
+    order_id = request.data.get('order_id')
+    
+    if not order_id:
+        return Response({"error": "order_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+    try:
+        order = models.Order.objects.get(id=order_id, customer=request.user)
+    except models.Order.DoesNotExist:
+        return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+    if order.status == 'paid':
+        return Response({"error": "Order is already paid"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 1. Authentication Request
+    auth_response = requests.post(
+        "https://accept.paymob.com/api/auth/tokens",
+        json={"api_key": settings.PAYMOB_API_KEY}
+    )
+    if not auth_response.ok:
+        return Response({"error": "Failed to authenticate with Paymob"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    token = auth_response.json().get('token')
+    
+    # 2. Order Registration Request
+    amount_cents = int(order.total_price * 100)
+    
+    order_data = {
+        "auth_token": token,
+        "delivery_needed": "false",
+        "amount_cents": str(amount_cents),
+        "currency": "EGP",
+        "merchant_order_id": f"{order.id}~{int(time.time())}", # To prevent duplicate keys in paymob
+        "items": []
+    }
+    
+    for item in order.items.all():
+        product_name = item.variant.product.name if hasattr(item, 'variant') else getattr(item, 'product', item).name if hasattr(item, 'product') else "Product"
+        order_data["items"].append({
+            "name": product_name,
+            "amount_cents": str(int(item.price * 100)),
+            "description": product_name,
+            "quantity": str(item.quantity)
+        })
+        
+    order_response = requests.post(
+        "https://accept.paymob.com/api/ecommerce/orders",
+        json=order_data
+    )
+    if not order_response.ok:
+        return Response({"error": "Failed to register order with Paymob"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    paymob_order_id = order_response.json().get('id')
+    
+    # 3. Payment Key Request
+    billing_data = {
+        "apartment": "NA", 
+        "email": getattr(request.user, 'email', 'na@na.com'), 
+        "floor": "NA", 
+        "first_name": request.user.full_name.split()[0] if getattr(request.user, 'full_name', '') else "Guest",
+        "street": order.full_address or "NA", 
+        "building": "NA", 
+        "phone_number": order.phone_number or "NA", 
+        "shipping_method": "NA", 
+        "postal_code": "NA", 
+        "city": "NA", 
+        "country": order.country or "EG", 
+        "last_name": request.user.full_name.split()[-1] if len(getattr(request.user, 'full_name', '').split()) > 1 else "Guest", 
+        "state": "NA"
+    }
+    
+    payment_key_data = {
+        "auth_token": token,
+        "amount_cents": str(amount_cents), 
+        "expiration": 3600, 
+        "order_id": paymob_order_id,
+        "billing_data": billing_data,
+        "currency": "EGP", 
+        "integration_id": settings.PAYMOB_INTEGRATION_ID
+    }
+    
+    payment_key_response = requests.post(
+        "https://accept.paymob.com/api/acceptance/payment_keys",
+        json=payment_key_data
+    )
+    if not payment_key_response.ok:
+        return Response({"error": "Failed to get payment key from Paymob"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    payment_token = payment_key_response.json().get('token')
+    
+    # Construct the final Paymob iframe checkout URL
+    checkout_url = f"https://accept.paymob.com/api/acceptance/iframes/{settings.PAYMOB_IFRAME_ID}?payment_token={payment_token}"
+    
+    return Response({
+        "url": checkout_url,
+        "payment_token": payment_token,
+        "iframe_id": settings.PAYMOB_IFRAME_ID
+    })
+
+@api_view(['POST']) 
+@permission_classes([AllowAny])
+def paymob_webhook(request):
+    hmac_received = request.query_params.get('hmac')
+    if not hmac_received:
+        return Response({"error": "HMAC signature missing"}, status=status.HTTP_400_BAD_REQUEST)
+        
+    data = request.data
+    obj = data.get('obj', {})
+    
+    order_id = ""
+    order_dict = obj.get('order', {})
+    if isinstance(order_dict, dict):
+        order_id = order_dict.get('id', '')
+    elif isinstance(order_dict, int):
+        order_id = order_dict
+        
+    source_data = obj.get('source_data', {})
+    
+    def format_bool(val):
+        if isinstance(val, bool):
+            return str(val).lower()
+        return str(val)
+        
+    concatenated = (
+        format_bool(obj.get('amount_cents', '')) + 
+        format_bool(obj.get('created_at', '')) + 
+        format_bool(obj.get('currency', '')) + 
+        format_bool(obj.get('error_occured', '')) + 
+        format_bool(obj.get('has_parent_transaction', '')) + 
+        format_bool(obj.get('id', '')) + 
+        format_bool(obj.get('integration_id', '')) + 
+        format_bool(obj.get('is_3d_secure', '')) + 
+        format_bool(obj.get('is_auth', '')) + 
+        format_bool(obj.get('is_capture', '')) + 
+        format_bool(obj.get('is_refunded', '')) + 
+        format_bool(obj.get('is_standalone_payment', '')) + 
+        format_bool(obj.get('is_voided', '')) + 
+        format_bool(order_id) + 
+        format_bool(obj.get('owner', '')) + 
+        format_bool(obj.get('pending', '')) + 
+        format_bool(source_data.get('pan', '')) + 
+        format_bool(source_data.get('sub_type', '')) + 
+        format_bool(source_data.get('type', '')) + 
+        format_bool(obj.get('success', ''))
+    )
+    
+    calculated_hmac = hmac.new(
+        settings.PAYMOB_HMAC_SECRET.encode('utf-8'),
+        concatenated.encode('utf-8'),
+        hashlib.sha512
+    ).hexdigest()
+    
+    if calculated_hmac != hmac_received:
+        print("HMAC Mismatch!")
+        return Response({"error": "Invalid HMAC signature"}, status=status.HTTP_401_UNAUTHORIZED)
+        
+    if obj.get('success') == True:
+        merchant_order_id = order_dict.get('merchant_order_id', '') if isinstance(order_dict, dict) else ''
+        django_order_id = merchant_order_id.split('~')[0] if '~' in merchant_order_id else merchant_order_id
+        
+        if django_order_id:
+            try:
+                with transaction.atomic():
+                    order = models.Order.objects.select_for_update().get(id=django_order_id)
+                    
+                    if order.status != 'paid':
+                        order.status = 'paid'
+                        order.save()
+                        
+                        for item in order.items.select_related('variant'):
+                            item.variant.stock = F('stock') - item.quantity
+                            item.variant.save()
+                            
+                        models.Cart.objects.filter(customer=order.customer).delete()
+                        
+                        models.Payment.objects.create(
+                            customer=order.customer,
+                            order=order,
+                            amount=Decimal(obj.get('amount_cents', 0)) / 100,
+                            method='paymob',
+                            transaction_id=str(obj.get('id'))
+                        )
+                        print(f"✅ Order {django_order_id} fully processed via Paymob.")
+            except models.Order.DoesNotExist:
+                print(f"❌ Order {django_order_id} not found during Paymob webhook.")
+            except Exception as e:
+                print(f"❌ Webhook Error: {str(e)}")
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+    return Response({"message": "Webhook received successfully"}, status=status.HTTP_200_OK)############### DASHBOARD ##################
 
 ## ADD SOMETHINGS ##
 
