@@ -201,6 +201,14 @@ class DashboardVariantImageUploadSerializer(serializers.ModelSerializer):
         model = models.ProductImage
         fields = ['id', 'img']
 
+class DashboardVariantListSerializer(serializers.ListSerializer):
+    def validate(self, attrs):
+        # Check for duplicate volumes in the incoming bulk request
+        volumes = [item.get('volume') for item in attrs if item.get('volume')]
+        if len(volumes) != len(set(volumes)):
+            raise serializers.ValidationError("Duplicate volumes are not allowed in the same request.")
+        return super().validate(attrs)
+
 
 
 # 2. Create Variant Serializer (No Images here, just data)
@@ -210,7 +218,17 @@ class DashboardVariantCreateSerializer(serializers.ModelSerializer):
         model = models.ProductVariant
         # We ONLY include fields that the user actually sends
         fields = ['id','volume', 'price', 'compare_at_price', 'stock']
+        list_serializer_class = DashboardVariantListSerializer
 
+    def validate(self, attrs):
+        product_id = self.context.get('product_id')
+        volume = attrs.get('volume')
+        
+        if product_id and volume:
+            if models.ProductVariant.objects.filter(product_id=product_id, volume=volume).exists():
+                raise serializers.ValidationError({"volume": f"A variant with volume '{volume}' already exists for this product."})
+                
+        return attrs
 
     def create(self, validated_data):
         # We need to manually get the product from the context or the save() call
@@ -267,4 +285,16 @@ class DashboardVariantUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ProductVariant
         fields = ['volume', 'price', 'compare_at_price', 'stock', 'is_active']
+        
+    def validate(self, attrs):
+        volume = attrs.get('volume')
+        
+        if volume and self.instance:
+            if models.ProductVariant.objects.filter(
+                product_id=self.instance.product_id, 
+                volume=volume
+            ).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError({"volume": f"A variant with volume '{volume}' already exists for this product."})
+                
+        return attrs
 
