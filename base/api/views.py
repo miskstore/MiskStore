@@ -347,9 +347,22 @@ def merge_cart(request):
 @permission_classes([IsAuthenticated])
 @transaction.atomic
 def place_order(request):
-    cart = get_object_or_404(models.Cart, customer=request.user)
+    # Lock the cart to prevent concurrent orders with the same items
+    cart = get_object_or_404(models.Cart.objects.select_for_update(), customer=request.user)
     if not cart.items.exists():
         return Response({"error": "Cart is empty"}, status=400)
+        
+    # Prevent double submission from quick multiple clicks
+    recent_order = models.Order.objects.filter(
+        customer=request.user,
+        created_at__gte=timezone.now() - timedelta(seconds=30)
+    ).exists()
+
+    if recent_order:
+        return Response(
+            {"error": "Please wait a moment before placing another order."}, 
+            status=status.HTTP_429_TOO_MANY_REQUESTS
+        )
 
     serializer = serializers.CreateOrderSerializer(data=request.data)
     if not serializer.is_valid():
