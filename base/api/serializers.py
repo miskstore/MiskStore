@@ -45,15 +45,16 @@ class VariantSerializer(serializers.ModelSerializer):
                   'compare_at_price', 'stock', 'images', 'is_on_sale','is_active']
 
     def get_images(self, obj):
-        # Returns a list of URLs: ["cloud/img1.jpg", "cloud/img2.jpg"]
-        return [img.img.url for img in obj.images.all() if img.img]
+        # Returns a list of dictionaries: [{"id": 1, "url": "cloud/img1.jpg"}, ...]
+        return [{"id": img.id, "url": img.img.url,"is_thumbnail":img.is_thumbnail} for img in obj.images.all() if img.img]
 
 class ProductDetailSerializer(serializers.ModelSerializer):
     variants = VariantSerializer(many=True, read_only=True)
     
     # THE FIX: ReadOnlyField safely catches the error. 
     # If category is missing, it just returns `null` in the JSON instead of crashing!
-    category = serializers.ReadOnlyField(source='category.name') 
+    category = serializers.ReadOnlyField(source='category.name')
+    
     
     # Aggregate data for the main header
     rating = serializers.FloatField(source='average_rating_value', read_only=True)
@@ -199,7 +200,7 @@ class DashBoardReviewSerializer(serializers.ModelSerializer):
 class DashboardVariantImageUploadSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ProductImage
-        fields = ['id', 'img']
+        fields = ['id','img']
 
 class DashboardVariantListSerializer(serializers.ListSerializer):
     def validate(self, attrs):
