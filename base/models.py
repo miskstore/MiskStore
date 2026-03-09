@@ -119,7 +119,7 @@ class ProductVariant(models.Model):
     
     @property
     def average_rating_value(self):
-        return self.reviews.aggregate(avg=Avg("rating"))["avg"] or 0
+        return self.product.reviews.aggregate(avg=Avg("rating"))["avg"] or 0
  
     def __str__(self):
         return f"{self.product.name} - {self.volume}"
@@ -206,7 +206,8 @@ class OrderItem(models.Model):
         return self.quantity * self.price
     
     def save(self,*args,**kwargs):
-        self.price = self.variant.price
+        if self.variant:
+            self.price = self.variant.price
         super().save(*args,**kwargs)
 
     def __str__(self):

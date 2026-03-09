@@ -33,10 +33,10 @@ from rest_framework.parsers import MultiPartParser, FormParser
 @api_view(['POST'])
 @permission_classes([UnAuthenticated])
 def register(request):
-    email = request.data.get('email').strip()
-    password1 = request.data.get('password1').strip()
-    password2 = request.data.get('password2').strip()
-    full_name = request.data.get('full_name').strip()
+    email = request.data.get('email', '').strip()
+    password1 = request.data.get('password1', '').strip()
+    password2 = request.data.get('password2', '').strip()
+    full_name = request.data.get('full_name', '').strip()
 
     if password1 != password2:
         return Response({"error":"passwords doesn't match"},status=status.HTTP_400_BAD_REQUEST)
@@ -179,14 +179,18 @@ def get_product_detail(request, pk):
 def get_cart_from_request(request):
     """Helper to fetch or create a cart based on User Auth or Device ID."""
     if request.user.is_authenticated:
-        cart, _ = models.Cart.objects.get_or_create(customer=request.user)
+        cart = models.Cart.objects.filter(customer=request.user).first()
+        if not cart:
+            cart = models.Cart.objects.create(customer=request.user)
         return cart
     else:
         device_id = request.headers.get('X-Device-ID')
         if not device_id:
             raise ValueError("No Device ID provided for guest cart.")
         
-        cart, _ = models.Cart.objects.get_or_create(device_id=device_id, customer__isnull=True)
+        cart = models.Cart.objects.filter(device_id=device_id, customer__isnull=True).first()
+        if not cart:
+            cart = models.Cart.objects.create(device_id=device_id)
         return cart
 
 @api_view(['GET'])
@@ -305,32 +309,33 @@ def merge_cart(request):
     if not device_id:
         return Response({"message": "No guest cart to merge"}, status=200)
 
-    try:
-        guest_cart = models.Cart.objects.get(device_id=device_id, customer__isnull=True)
-        user_cart, _ = models.Cart.objects.get_or_create(customer=request.user)
-
-        for guest_item in guest_cart.items.select_related('variant'):
-            user_item, created = models.CartItem.objects.get_or_create(
-                cart=user_cart,
-                variant=guest_item.variant,
-                defaults={'quantity': guest_item.quantity, 'price': guest_item.variant.price}
-            )
-            
-            if not created:
-                new_quantity = user_item.quantity + guest_item.quantity
-                if new_quantity > guest_item.variant.stock:
-                    user_item.quantity = guest_item.variant.stock
-                else:
-                    user_item.quantity = new_quantity
-                
-                user_item.price = guest_item.variant.price
-                user_item.save()
-
-        guest_cart.delete()
-        return Response({"message": "Carts merged successfully!"}, status=200)
-
-    except models.Cart.DoesNotExist:
+    guest_cart = models.Cart.objects.filter(device_id=device_id, customer__isnull=True).first()
+    if not guest_cart:
         return Response({"message": "Guest cart not found or already merged"}, status=200)
+
+    user_cart = models.Cart.objects.filter(customer=request.user).first()
+    if not user_cart:
+        user_cart = models.Cart.objects.create(customer=request.user)
+
+    for guest_item in guest_cart.items.select_related('variant'):
+        user_item, created = models.CartItem.objects.get_or_create(
+            cart=user_cart,
+            variant=guest_item.variant,
+            defaults={'quantity': guest_item.quantity, 'price': guest_item.variant.price}
+        )
+        
+        if not created:
+            new_quantity = user_item.quantity + guest_item.quantity
+            if new_quantity > guest_item.variant.stock:
+                user_item.quantity = guest_item.variant.stock
+            else:
+                user_item.quantity = new_quantity
+            
+            user_item.price = guest_item.variant.price
+            user_item.save()
+
+    guest_cart.delete()
+    return Response({"message": "Carts merged successfully!"}, status=200)
 
 
 #############################
@@ -483,7 +488,9 @@ def toggle_wishlist(request):
     product_id = request.data.get('product_id')
     product = get_object_or_404(models.Product, id=product_id)
     
-    wishlist, created = models.WishList.objects.get_or_create(customer=request.user)
+    wishlist = models.WishList.objects.filter(customer=request.user).first()
+    if not wishlist:
+        wishlist = models.WishList.objects.create(customer=request.user)
     
     if product in wishlist.products.all():
         wishlist.products.remove(product)
@@ -681,7 +688,7 @@ def create_checkout_session(request):
     line_items = []
     for item in order.items.all():
         # Determine the correct name (handle variants if they exist)
-        product_name = item.variant.product.name if hasattr(item, 'variant') else item.product.name
+        product_name = item.variant.product.name if item.variant else "Unknown Product"
         
         line_items.append({
             'price_data': {
@@ -753,7 +760,7 @@ def stripe_webhook(request):
                     
                     # Prevent double processing
                     if order.status == 'paid':
-                        return Response({"error":e},status=200)
+                        return Response({"error":"Order already processed"},status=200)
 
                     # 3. Mark as Paid
                     order.status = 'paid'
