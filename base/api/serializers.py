@@ -24,14 +24,19 @@ class GetAllProductListSerializer(serializers.ModelSerializer):
         ]
 
     def get_thumbnail(self, obj):
-        # Efficiently grab the first image from the pre-fetched variants
-        # logic: Get first variant -> Get first image of that variant
-        first_variant = next(iter(obj.variants.all()), None)
-        if first_variant:
-            first_image = next(iter(first_variant.images.all()), None)
-            if first_image and first_image.img:
-                return first_image.img.url 
-        return None # Return placeholder URL if needed
+        # 1. Look for an explicitly marked thumbnail across all pre-fetched variants
+        for variant in obj.variants.all():
+            for image in variant.images.all():
+                if image.is_thumbnail and image.img:
+                    return image.img.url
+                    
+        # 2. Fallback: if no thumbnail is set, just return the first available image
+        for variant in obj.variants.all():
+            for image in variant.images.all():
+                if image.img:
+                    return image.img.url
+                    
+        return None  # Return placeholder URL if needed
 
 
 class VariantSerializer(serializers.ModelSerializer):
