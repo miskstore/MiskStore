@@ -56,9 +56,12 @@ INSTALLED_APPS = [
     "cloudinary_storage",
     "rest_framework_simplejwt.token_blacklist",
     'rest_framework.authtoken',
-    'django_rest_passwordreset',
+    "django_rest_passwordreset",
     "dj_rest_auth",
 ]
+
+DJANGO_REST_MULTITOKENAUTH_REQUIRE_USABLE_PASSWORD = False
+DJANGO_REST_PASSWORDRESET_REQUIRE_USABLE_PASSWORD = False
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',

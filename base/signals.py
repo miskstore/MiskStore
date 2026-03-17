@@ -31,7 +31,7 @@ class EmailThread(threading.Thread):
 
 @receiver(reset_password_token_created)
 def password_reset_token_created(sender, instance, reset_password_token, *args, **kwargs):
-    reset_password_url = "https://novera-tau.vercel.app/reset-password?token={}".format(
+    reset_password_url = "https://perfume-site-bee1.vercel.app/reset-password?token={}".format(
         reset_password_token.key
     )
     
