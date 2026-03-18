@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     "django_rest_passwordreset",
     "dj_rest_auth",
+    "anymail",
 ]
 
 DJANGO_REST_MULTITOKENAUTH_REQUIRE_USABLE_PASSWORD = False
@@ -206,9 +207,8 @@ SITE_ID = 1
 
 
 ## EMAIL SHIT
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = os.environ.get('EMAIL_HOST_BREVO', os.environ.get('EMAIL_HOST'))
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 2525)) # Railway blocks port 587, use 2525 for Brevo
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER_BREVO', os.environ.get('EMAIL_HOST_USER'))
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD_BREVO', os.environ.get('EMAIL_HOST_PASSWORD'))
+EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+ANYMAIL = {
+    "RESEND_API_KEY": os.environ.get('RESEND_API_KEY'),
+}
+DEFAULT_FROM_EMAIL = os.environ.get('EMAIL_HOST_USER_RESEND', os.environ.get('EMAIL_HOST_USER'))

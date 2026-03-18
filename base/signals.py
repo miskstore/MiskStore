@@ -5,6 +5,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.dispatch import receiver
 from django.template.loader import render_to_string
 from django_rest_passwordreset.signals import reset_password_token_created
+import os
 
 class EmailThread(threading.Thread):
     def __init__(self, subject, message, from_email, recipient_list):
@@ -41,7 +42,7 @@ def password_reset_token_created(sender, instance, reset_password_token, *args, 
     EmailThread(
         subject="Password Reset for My Website",
         message=email_message,
-        from_email="xtramarket9@gmail.com",
+        from_email=os.environ.get('EMAIL_HOST_USER'),
         recipient_list=[reset_password_token.user.email]
     ).start()
 
