@@ -103,7 +103,7 @@ def get_all_products(request):
         queryset = models.Product.objects.annotate(
             lowest_price=Min('variants__price'),
             average_rating=Avg('reviews__rating'),
-            review_count=Count('reviews')
+            review_count=Count('reviews', distinct=True)
         ).select_related('category').prefetch_related(
             Prefetch('variants', queryset=models.ProductVariant.objects.prefetch_related('images'))
         )
@@ -112,7 +112,7 @@ def get_all_products(request):
         queryset = models.Product.objects.filter(is_active=True).annotate(
             lowest_price=Min('variants__price'),
             average_rating=Avg('reviews__rating'),
-            review_count=Count('reviews')
+            review_count=Count('reviews', distinct=True)
         ).select_related('category').prefetch_related(
             Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
         )
@@ -132,12 +132,18 @@ def get_all_products(request):
     min_price = request.query_params.get('min_price', None)
     max_price = request.query_params.get('max_price', None)
 
-    if min_price:
-        queryset = queryset.filter(lowest_price__gte=min_price)
-    if max_price:
-        queryset = queryset.filter(lowest_price__lte=max_price)
+    try:
+        if min_price is not None:
+            min_price = float(min_price)
+            queryset = queryset.filter(lowest_price__gte=min_price)
+        if max_price is not None:
+            max_price = float(max_price)
+            queryset = queryset.filter(lowest_price__lte=max_price)
+    except ValueError:
+        return Response({"error": "Invalid price format. Must be a number."}, status=status.HTTP_400_BAD_REQUEST)
 
     # 3. Apply Pagination
+    queryset = queryset.order_by('-created_at')
     paginator = ProductPagination()
     result_page = paginator.paginate_queryset(queryset, request)
     
@@ -478,7 +484,7 @@ def get_wishlist(request):
             Prefetch('products', queryset=models.Product.objects.filter(is_active=True).annotate(
                 lowest_price=Min('variants__price'),
                 average_rating=Avg('reviews__rating'),
-                review_count=Count('reviews')
+                review_count=Count('reviews', distinct=True)
             ).prefetch_related(
                 Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
             ))
