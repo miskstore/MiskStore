@@ -115,6 +115,10 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny', # Global default, strictly override in views
     ),
+    'DEFAULT_RENDERER_CLASSES': [
+        'base.api.renderers.CustomErrorJSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
 }
 
 SIMPLE_JWT = {

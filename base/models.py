@@ -48,7 +48,7 @@ class Category(models.Model):
 class Banner(models.Model):
     title = models.CharField(max_length=200)
     image = CloudinaryField("banners/", null=True)
-    link = models.URLField(max_length=500, blank=True, null=True)
+    link = models.URLField(max_length=500, blank=True, default="")
     is_active = models.BooleanField(default=True)
     order = models.IntegerField(default=0, help_text="Order in which banner appears (lower numbers first)")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -64,8 +64,8 @@ class SiteSettings(models.Model):
     # We will enforce this in the save method
     
     # --- Top Announcement Bar ---
-    announcement_text = models.CharField(max_length=255, blank=True, null=True, help_text="e.g. Free shipping for orders over $2000")
-    announcement_link = models.URLField(max_length=500, blank=True, null=True, help_text="Optional link when clicking the top bar")
+    announcement_text = models.CharField(max_length=255, blank=True, default="", help_text="e.g. Free shipping for orders over $2000")
+    announcement_link = models.URLField(max_length=500, blank=True, default="", help_text="Optional link when clicking the top bar")
     is_announcement_active = models.BooleanField(default=True)
     
     # --- Optional future additions ---
@@ -98,8 +98,8 @@ class Product(models.Model):
     description = models.TextField()
     
     # Perfume Specifics
-    fragrance_family = models.CharField(max_length=255, null=True, blank=True)
-    concentration = models.CharField(max_length=255, null=True, blank=True)
+    fragrance_family = models.CharField(max_length=255, blank=True, default="")
+    concentration = models.CharField(max_length=255, blank=True,null=True, default="")
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -218,11 +218,11 @@ class Order(DirtyFieldsMixin,models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Biling details
-    full_name = models.CharField(max_length=200,null=True)
-    full_address = models.CharField(max_length=300,null=True)
-    order_notes = models.TextField(blank=True,null=True)
-    phone_number = models.CharField(max_length=25,null=True)
-    country = models.CharField(max_length=100,null=True)
+    full_name = models.CharField(max_length=200)
+    full_address = models.CharField(max_length=300)
+    order_notes = models.TextField(blank=True,null=True, default="")
+    phone_number = models.CharField(max_length=25)
+    country = models.CharField(max_length=100)
 
     @property
     def total_price(self):
@@ -251,7 +251,7 @@ class OrderItem(models.Model):
     variant = models.ForeignKey(ProductVariant,on_delete=models.SET_NULL, null=True)
     quantity = models.PositiveIntegerField(default=1)
     price = models.DecimalField(max_digits=8,decimal_places=2,blank=True)
-    created_at = models.DateTimeField(auto_now_add=True,null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     @property
     def subtotal(self): # for each item not whole order
