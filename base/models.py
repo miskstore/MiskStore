@@ -27,7 +27,7 @@ class UserManager(BaseUserManager):
 class User(AbstractUser):
     username = None  # Removes username field
     email = models.EmailField(unique=True)
-    full_name = models.CharField(max_length=100)
+    full_name = models.CharField(max_length=100,null=True)
 
     # LINK THE NEW MANAGER HERE
     objects = UserManager()
@@ -99,7 +99,7 @@ class Product(models.Model):
     
     # Perfume Specifics
     fragrance_family = models.CharField(max_length=255, blank=True, default="")
-    concentration = models.CharField(max_length=255, blank=True,null=True, default="")
+    concentration = models.CharField(max_length=255, blank=True, default="")
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
