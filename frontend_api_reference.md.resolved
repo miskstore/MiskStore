@@ -230,6 +230,11 @@ Adds a review for a specific product.
 
 *Note: Requires Admin / Staff Privileges.*
 
+### `GET /api/dashboard/categories/`
+Fetches the list of all categories. **Note:**
+- If accessed by a non-admin (or without `?all=true`), it returns only active categories.
+- Admins can append `?all=true` to get all categories (including deactivated ones).
+
 ### `POST /api/dashboard/categories/`
 Creates a brand new product category. **(Multi-Language Supported)**
 ```json
@@ -238,6 +243,21 @@ Creates a brand new product category. **(Multi-Language Supported)**
   "name_ar": "عطور رجالية"
 }
 ```
+
+### `PATCH /api/dashboard/categories/<category_id>/`
+Updates an existing category's properties. **(Multi-Language Supported)**
+```json
+{
+  "name_en": "Men's Perfume",
+  "name_ar": "عطور رجالية",
+  "is_active": false
+}
+```
+
+### `DELETE /api/dashboard/categories/<category_id>/`
+Soft deletes (deactivates) a category. This will set `is_active=False`.
+If you want to permanently delete the category from the database, append `?hard=true` to the URL. Note that hard-deleting a category that has products assigned to it will return a 400 Bad Request.
+
 
 ### `POST /api/dashboard/products/create/`
 Creates a new Product. **(Multi-Language Supported for Strings)**

@@ -106,8 +106,18 @@ class CategorySerializer(serializers.ModelSerializer):
             validated_data['name_ar'] = validated_data.get('name_en', '')
         return super().create(validated_data)
 
+class DashboardCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Category
+        fields = ['id', 'name_en', 'name_ar', 'is_active']
+
+    def create(self, validated_data):
+        if not validated_data.get('name_ar'):
+            validated_data['name_ar'] = validated_data.get('name_en', '')
+        return super().create(validated_data)
+
     def update(self, instance, validated_data):
-        if not validated_data.get('name_ar') and validated_data.get('name_en'):
+        if validated_data.get('name_en') and not validated_data.get('name_ar'):
             validated_data['name_ar'] = validated_data['name_en']
         return super().update(instance, validated_data)
 

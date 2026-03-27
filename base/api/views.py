@@ -1108,28 +1108,63 @@ def paymob_webhook(request):
 from rest_framework.permissions import IsAdminUser
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny]) # SECURITY: Only staff/admins can access this
+@permission_classes([AllowAny])
 def manage_categories(request):
     
     # --- GET: The frontend asks for the full list for the dropdown ---
     if request.method == 'GET':
-        # order_by('name') makes it alphabetical for the frontend dropdown
-        categories = models.Category.objects.all().order_by('name')
-        serializer = serializers.CategorySerializer(categories, many=True)
+        # If admin requests all=true, show inactive too
+        show_all = request.query_params.get('all') == 'true' and request.user.is_staff
+        if show_all:
+            categories = models.Category.objects.all().order_by('name')
+            serializer = serializers.DashboardCategorySerializer(categories, many=True)
+        else:
+            categories = models.Category.objects.filter(is_active=True).order_by('name')
+            serializer = serializers.CategorySerializer(categories, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # --- POST: The admin types a new name and hits "Save" ---
     elif request.method == 'POST':
         if not request.user.is_staff:
             return Response({"error":_("You can't perform this action")},status=status.HTTP_403_FORBIDDEN)
-        serializer = serializers.CategorySerializer(data=request.data)
+        serializer = serializers.DashboardCategorySerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            # We return a 201 Created and the exact data of the new category
             return Response(serializer.data, status=status.HTTP_201_CREATED)
             
-        # If they send blank data or something invalid, return the error
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAdminUser])
+def manage_category_detail(request, pk):
+    """Admin endpoint to edit or soft-delete a category."""
+    category = get_object_or_404(models.Category, id=pk)
+
+    if request.method == 'PATCH':
+        serializer = serializers.DashboardCategorySerializer(category, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": _("Category updated"), "data": serializer.data})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    elif request.method == 'DELETE':
+        is_hard_delete = request.query_params.get('hard') == 'true'
+
+        if is_hard_delete:
+            # Safety: check if any product uses this category
+            if category.products.exists():
+                return Response(
+                    {"error": _("Cannot delete this category because it is assigned to products. Please deactivate it instead.")},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            category.delete()
+            return Response({"message": _("Category permanently deleted.")}, status=status.HTTP_200_OK)
+        else:
+            # Soft delete
+            category.is_active = False
+            category.save()
+            return Response({"message": _("Category deactivated successfully.")}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])

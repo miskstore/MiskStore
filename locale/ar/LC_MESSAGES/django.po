@@ -285,3 +285,19 @@ msgstr "لا يمكنك تحديد الطلب كمدفوع يدوياً."
 #: .\base\api\serializers.py
 msgid "Cannot change status of a paid order."
 msgstr "لا يمكن تغيير حالة طلب مدفوع."
+
+#: .\base\api\views.py
+msgid "Category updated"
+msgstr "تم تحديث الفئة"
+
+#: .\base\api\views.py
+msgid "Cannot delete this category because it is assigned to products. Please deactivate it instead."
+msgstr "لا يمكن حذف هذه الفئة لأنها مرتبطة بمنتجات. يرجى إلغاء تنشيطها بدلاً من ذلك."
+
+#: .\base\api\views.py
+msgid "Category permanently deleted."
+msgstr "تم حذف الفئة بشكل دائم."
+
+#: .\base\api\views.py
+msgid "Category deactivated successfully."
+msgstr "تم إلغاء تنشيط الفئة بنجاح."

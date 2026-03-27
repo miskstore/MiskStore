@@ -54,6 +54,7 @@ urlpatterns = [
     path('dashboard/order/<str:pk>/',views.order_detail_action),
     path('dashboard/make-admin/',views.promote_user_to_admin),
     path('dashboard/categories/', views.manage_categories, name='manage-categories'),
+    path('dashboard/categories/<int:pk>/', views.manage_category_detail, name='manage-category-detail'),
 
     ###########
 
