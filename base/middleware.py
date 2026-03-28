@@ -19,3 +19,24 @@ class ForceDashboardArabicMiddleware:
 
         response = self.get_response(request)
         return response
+
+class APIAcceptLanguageMiddleware:
+    """
+    Forces the requested Accept-Language header for /api/ routes.
+    This bypasses Django's default LocaleMiddleware cookie preference, 
+    ensuring that APIs always translate properly purely based on headers.
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path.startswith('/api/'):
+            header = request.META.get('HTTP_ACCEPT_LANGUAGE')
+            if header:
+                # take first language code (e.g., 'ar', 'ar-eg', 'en')
+                lang = header.split(',')[0].strip().split('-')[0].lower()
+                if lang in ['ar', 'en']:
+                    translation.activate(lang)
+                    request.LANGUAGE_CODE = lang
+
+        return self.get_response(request)

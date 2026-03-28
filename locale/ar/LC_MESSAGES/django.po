@@ -301,3 +301,13 @@ msgstr "تم حذف الفئة بشكل دائم."
 #: .\base\api\views.py
 msgid "Category deactivated successfully."
 msgstr "تم إلغاء تنشيط الفئة بنجاح."
+
+msgid "No active account found with the given credentials"
+msgstr "لا يوجد حساب نشط مطابق للبيانات المدخلة"
+
+msgid "No ProductVariant matches the given query."
+msgstr "المنتج غير موجود"
+
+msgid "No CartItem matches the given query."
+msgstr "العنصر غير موجود في السلة"
+
