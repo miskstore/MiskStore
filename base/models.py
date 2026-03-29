@@ -46,6 +46,14 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
+class Governorate(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    shipping_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('50.00'))
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
 class Banner(models.Model):
     title = models.CharField(max_length=200)
     image = CloudinaryField("banners/", null=True)
@@ -223,11 +231,14 @@ class Order(DirtyFieldsMixin,models.Model):
     full_address = models.CharField(max_length=300)
     order_notes = models.TextField(blank=True,null=True, default="")
     phone_number = models.CharField(max_length=25)
-    country = models.CharField(max_length=100)
+    country = models.CharField(max_length=100, default="Egypt")
+    governorate = models.ForeignKey(Governorate, on_delete=models.SET_NULL, null=True, blank=True)
+    shipping_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
 
     @property
     def total_price(self):
-        return sum(item.quantity * item.price for item in self.items.all())
+        items_total = sum(item.quantity * item.price for item in self.items.all())
+        return items_total + self.shipping_fee
     
     STATUS_CHOICES = [
     ("pending", "Pending"),

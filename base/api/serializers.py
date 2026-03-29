@@ -125,6 +125,26 @@ class CategorySerializer(serializers.ModelSerializer):
             validated_data['name_ar'] = validated_data.get('name_en', '')
         return super().create(validated_data)
 
+class GovernorateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Governorate
+        fields = ['id', 'name', 'shipping_fee']
+
+class DashboardGovernorateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Governorate
+        fields = ['id', 'name_en', 'name_ar', 'shipping_fee', 'is_active']
+
+    def create(self, validated_data):
+        if not validated_data.get('name_ar'):
+            validated_data['name_ar'] = validated_data.get('name_en', '')
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('name_en') and not validated_data.get('name_ar'):
+            validated_data['name_ar'] = validated_data['name_en']
+        return super().update(instance, validated_data)
+
 class DashboardCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Category
@@ -150,17 +170,20 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    governorate_name = serializers.CharField(source='governorate.name', read_only=True)
     
     class Meta:
         model = models.Order
         fields = ['id', 'status', 'total_price', 'created_at', 'items', 
-                  'full_name', 'full_address', 'phone_number', 'country']
-        read_only_fields = ['id', 'status', 'total_price', 'created_at', 'items']
+                  'full_name', 'full_address', 'phone_number', 'country',
+                  'shipping_fee', 'governorate_name']
+        read_only_fields = ['id', 'status', 'total_price', 'created_at', 'items', 'shipping_fee', 'governorate_name']
 
 class CreateOrderSerializer(serializers.ModelSerializer):
+    governorate_id = serializers.IntegerField(write_only=True, required=True, help_text="ID of the shipping Governorate")
     class Meta:
         model = models.Order
-        fields = ['full_name', 'full_address', 'phone_number', 'country', 'order_notes']
+        fields = ['full_name', 'full_address', 'phone_number', 'country', 'order_notes', 'governorate_id']
 
 class ReviewSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.full_name', read_only=True)
@@ -222,12 +245,15 @@ class DashBoardTopSalesSerializer(serializers.ModelSerializer):
 class DashBoardOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     payment_method = serializers.SerializerMethodField()
+    governorate_name_en = serializers.CharField(source='governorate.name_en', read_only=True)
+    governorate_name_ar = serializers.CharField(source='governorate.name_ar', read_only=True)
     
     class Meta:
         model = models.Order
         fields = ['id', 'status', 'total_price', 'created_at', 'items', 
-                  'full_name', 'full_address', 'phone_number', 'country', 'payment_method']
-        read_only_fields = ['id', 'status', 'total_price', 'created_at', 'items']
+                  'full_name', 'full_address', 'phone_number', 'country', 'payment_method',
+                  'shipping_fee', 'governorate_name_en', 'governorate_name_ar']
+        read_only_fields = ['id', 'status', 'total_price', 'created_at', 'items', 'shipping_fee']
 
     def get_payment_method(self, obj):
         # Payment is a OneToOneField with related_name='payment'

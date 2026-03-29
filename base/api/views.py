@@ -410,6 +410,16 @@ def place_order(request):
     # --- 2. Read Payment Method ---
     payment_method = request.data.get('payment_method', 'card')
 
+    # --- 2.5 Look up Governorate & lock in shipping fee ---
+    governorate_id = serializer.validated_data.get('governorate_id')
+    try:
+        governorate = models.Governorate.objects.get(id=governorate_id, is_active=True)
+    except models.Governorate.DoesNotExist:
+        return Response(
+            {"error": _("Selected governorate is not available for shipping.")},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     # --- 3. SAFE TO CREATE ---
     order = models.Order.objects.create(
         customer=request.user,
@@ -418,6 +428,8 @@ def place_order(request):
         phone_number=serializer.validated_data.get('phone_number'),
         country=serializer.validated_data.get('country'),
         order_notes=serializer.validated_data.get('order_notes'),
+        governorate=governorate,
+        shipping_fee=governorate.shipping_fee,
         status='pending'  # Temporary, will be updated below
     )
 
@@ -1817,3 +1829,67 @@ def manage_site_settings(request):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+# --- GOVERNORATE SHIPPING APIs ---
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_governorates(request):
+    """Public endpoint for the checkout dropdown. Returns active governorates with their fees."""
+    governorates = models.Governorate.objects.filter(is_active=True).order_by('name')
+    serializer = serializers.GovernorateSerializer(governorates, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def manage_governorates(request):
+    """Admin dashboard: list all governorates or create a new one."""
+    if request.method == 'GET':
+        show_all = request.query_params.get('all') == 'true' and request.user.is_staff
+        if show_all:
+            governorates = models.Governorate.objects.all().order_by('name')
+            serializer = serializers.DashboardGovernorateSerializer(governorates, many=True)
+        else:
+            governorates = models.Governorate.objects.filter(is_active=True).order_by('name')
+            serializer = serializers.GovernorateSerializer(governorates, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    elif request.method == 'POST':
+        if not request.user.is_staff:
+            return Response({"error": _("You can't perform this action")}, status=status.HTTP_403_FORBIDDEN)
+        serializer = serializers.DashboardGovernorateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAdminUser])
+def manage_governorate_detail(request, pk):
+    """Admin endpoint to edit or soft-delete a governorate."""
+    governorate = get_object_or_404(models.Governorate, id=pk)
+
+    if request.method == 'PATCH':
+        serializer = serializers.DashboardGovernorateSerializer(governorate, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": _("Governorate updated"), "data": serializer.data})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    elif request.method == 'DELETE':
+        is_hard_delete = request.query_params.get('hard') == 'true'
+
+        if is_hard_delete:
+            if models.Order.objects.filter(governorate=governorate).exists():
+                return Response(
+                    {"error": _("Cannot delete this governorate because it is referenced by existing orders. Please deactivate it instead.")},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            governorate.delete()
+            return Response({"message": _("Governorate permanently deleted.")}, status=status.HTTP_200_OK)
+        else:
+            governorate.is_active = False
+            governorate.save()
+            return Response({"message": _("Governorate deactivated successfully.")}, status=status.HTTP_200_OK)

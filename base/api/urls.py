@@ -56,6 +56,11 @@ urlpatterns = [
     path('dashboard/categories/', views.manage_categories, name='manage-categories'),
     path('dashboard/categories/<int:pk>/', views.manage_category_detail, name='manage-category-detail'),
 
+    # Shipping / Governorates
+    path('shipping/governorates/', views.get_governorates, name='get-governorates'),
+    path('dashboard/governorates/', views.manage_governorates, name='manage-governorates'),
+    path('dashboard/governorates/<int:pk>/', views.manage_governorate_detail, name='manage-governorate-detail'),
+
     ###########
 
     path('dashboard/products/create/', views.create_product_api, name='dash-create-product'),

@@ -1,8 +1,12 @@
 from modeltranslation.translator import register, TranslationOptions
-from .models import Category, Banner, SiteSettings, Product
+from .models import Category, Governorate, Banner, SiteSettings, Product
 
 @register(Category)
 class CategoryTranslationOptions(TranslationOptions):
+    fields = ('name',)
+
+@register(Governorate)
+class GovernorateTranslationOptions(TranslationOptions):
     fields = ('name',)
 
 @register(Banner)

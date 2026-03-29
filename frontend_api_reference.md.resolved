@@ -118,19 +118,21 @@ Merges a guest cart into an authenticated user's cart (call this immediately aft
 ## 3. Order & Checkout (`/api/orders/...`)
 
 ### `POST /api/orders/place/`
-Converts the active cart into a static Order and clears the cart components temporarily. Returns an `order_id` to be used for Stripe/Paypal session creation.
+Converts the active cart into a static Order and clears the cart components temporarily. Returns an `order_id` to be used for Stripe/Paypal session creation. The `governorate_id` is **required** — get the list of available governorates from `GET /api/shipping/governorates/`. The shipping fee is automatically copied from the selected governorate into the order.
 ```json
 {
   "full_name": "John Doe",
   "full_address": "123 Perfume Lane, Apt 4",
   "phone_number": "+1234567890",
-  "country": "United States",
+  "country": "Egypt",
   "order_notes": "Please leave at the front door.",
-  "payment_method":"cod"
+  "governorate_id": 1,
+  "payment_method": "cod"
 }
 ```
 **Possible Errors:**
 * `400 Bad Request`: `{"error": "Cart is empty"}`
+* `400 Bad Request`: `{"error": "Selected governorate is not available for shipping."}`
 * `400 Bad Request`: `{"error": "Sorry, [Product Name] ([Volume]) is no longer available."}`
 * `400 Bad Request`: `{"error": "Product [Name] is out of stock. Only X left."}`
 * `429 Too Many Requests`: `{"error": "Please wait a moment before placing another order."}`
