@@ -974,6 +974,16 @@ def paymob_checkout(request):
             "quantity": str(item.quantity)
         })
         
+    # Add shipping fee as a separate item for Paymob dashboard
+    if order.shipping_fee and order.shipping_fee > 0:
+        shipping_desc = f"Shipping to {order.governorate.name}" if order.governorate else "Shipping Fee"
+        order_data["items"].append({
+            "name": "Shipping Fee",
+            "amount_cents": str(int(order.shipping_fee * 100)),
+            "description": shipping_desc,
+            "quantity": "1"
+        })
+        
     order_response = requests.post(
         "https://accept.paymob.com/api/ecommerce/orders",
         json=order_data
