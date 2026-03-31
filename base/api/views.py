@@ -473,6 +473,8 @@ def place_order(request):
 
         order.status = 'pending'
         order.save()
+        order_price = order.total_price-order.shipping_fee
+        payment_method = "كاش عند الاستلام"
         message = (
             f"🚨 <b>NEW ORDER RECEIVED!</b> 🚨\n\n"
             f"🛒 <b>Order ID(رقم الطلب):</b> #{order.id}\n"
@@ -480,8 +482,10 @@ def place_order(request):
             f"👤 <b>Customer Number(رقم العميل):</b> {order.phone_number}\n"
             f"👤 <b>Customer Address(عنوان العميل):</b> {order.full_address}\n"
             f"👤 <b>Order Notes(ملاحظات الطلب):</b> {order.order_notes}\n"
+            f"👤 <b>Order Price(سعر الطلب):</b> {order_price}\n"
+            f"👤 <b>Shipping Fee(سعر الشحن):</b> {order.shipping_fee}\n"
             f"💵 <b>Total(المبلغ):</b> {order.total_price} EGP\n"
-            f"💳 <b>Payment(طريقة الدفع):</b> {order.payment.method}\n\n"
+            f"💳 <b>Payment(طريقة الدفع):</b> {payment_method}\n\n"
         )
         send_telegram_notification(message)
 
@@ -1134,15 +1138,18 @@ def paymob_webhook(request):
                             method='paymob',
                             transaction_id=str(obj.get('id'))
                         )
+                        order_price = order.total_price-order.shipping_fee
                         message = (
-                            f"🚨 <b>NEW ORDER RECEIVED!</b> 🚨\n\n"
-                            f"🛒 <b>Order ID(رقم الطلب):</b> #{order.id}\n"
-                            f"👤 <b>Customer(العميل):</b> {order.full_name}\n"
-                            f"👤 <b>Customer Number(رقم العميل):</b> {order.phone_number}\n"
-                            f"👤 <b>Customer Address(عنوان العميل):</b> {order.full_address}\n"
-                            f"👤 <b>Order Notes(ملاحظات الطلب):</b> {order.order_notes}\n"
-                            f"💵 <b>Total(المبلغ):</b> {order.total_price} EGP\n"
-                            f"💳 <b>Payment(طريقة الدفع):</b> {order.payment.method}\n\n"
+            f"🚨 <b>NEW ORDER RECEIVED!</b> 🚨\n\n"
+            f"🛒 <b>Order ID(رقم الطلب):</b> #{order.id}\n"
+            f"👤 <b>Customer(العميل):</b> {order.full_name}\n"
+            f"👤 <b>Customer Number(رقم العميل):</b> {order.phone_number}\n"
+            f"👤 <b>Customer Address(عنوان العميل):</b> {order.full_address}\n"
+            f"👤 <b>Order Notes(ملاحظات الطلب):</b> {order.order_notes}\n"
+            f"👤 <b>Order Price(سعر الطلب):</b> {order_price}\n"
+            f"👤 <b>Shipping Fee(سعر الشحن):</b> {order.shipping_fee}\n"
+            f"💵 <b>Total(المبلغ):</b> {order.total_price} EGP\n"
+            f"💳 <b>Payment(طريقة الدفع):</b> {order.payment.method}\n\n"
                         )
                         send_telegram_notification(message)
                         print(f"✅ Order {django_order_id} fully processed via Paymob.")
