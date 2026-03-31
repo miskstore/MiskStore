@@ -315,3 +315,63 @@ msgstr "المنتج غير موجود"
 msgid "No CartItem matches the given query."
 msgstr "العنصر غير موجود في السلة"
 
+
+msgid "{user_name} is now an Admin (Staff)."
+msgstr "{user_name} الآن أصبح مسؤولاً (أدمن)."
+
+msgid "Governorate permanently deleted."
+msgstr "تم حذف المحافظة بشكل دائم."
+
+msgid "Selected governorate is not available for shipping."
+msgstr "المحافظة المحددة غير متاحة للشحن."
+
+msgid "Governorate updated"
+msgstr "تم تحديث المحافظة."
+
+msgid "Product {product_name} is out of stock. Only {stock} left."
+msgstr "المنتج {product_name} نفد من المخزون. متبقي {stock} فقط."
+
+msgid "This order cannot be paid online or is already processed."
+msgstr "لا يمكن دفع هذا الطلب عبر الإنترنت أو تمت معالجته بالفعل."
+
+msgid "Governorate deactivated successfully."
+msgstr "تم إلغاء تنشيط المحافظة بنجاح."
+
+msgid "Order initiated"
+msgstr "تم تأكيد الطلب."
+
+msgid "Cannot delete this governorate because it is referenced by existing orders. Please deactivate it instead."
+msgstr "لا يمكن حذف هذه المحافظة لأنها مرتبطة بطلبات حالية. يرجى إلغاء تنشيطها بدلاً من ذلك."
+
+msgid "Sorry, {product_name} ({volume}) is no longer available."
+msgstr "عذراً، {product_name} ({volume}) لم يعد متاحاً."
+
+msgid "User with this email not found."
+msgstr "لا يوجد مستخدم بهذا البريد الإلكتروني."
+
+msgid "Product variant not found."
+msgstr "نسخة المنتج غير موجودة."
+
+msgid "Cart item not found."
+msgstr "عنصر السلة غير موجود."
+
+msgid "Cart not found."
+msgstr "السلة غير موجودة."
+
+msgid "Product not found."
+msgstr "المنتج غير موجود."
+
+msgid "Category not found."
+msgstr "الفئة غير موجودة."
+
+msgid "Order not found."
+msgstr "الطلب غير موجود."
+
+msgid "Product image not found."
+msgstr "صورة المنتج غير موجودة."
+
+msgid "Banner not found."
+msgstr "البانر غير موجود."
+
+msgid "Governorate not found."
+msgstr "المحافظة غير موجودة."

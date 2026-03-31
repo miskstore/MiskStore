@@ -236,7 +236,10 @@ def add_to_cart(request):
     variant_id = request.data.get('variant_id')
     quantity = int(request.data.get('quantity', 1))
 
-    variant = get_object_or_404(models.ProductVariant, id=variant_id, is_active=True)
+    try:
+        variant = models.ProductVariant.objects.get(id=variant_id, is_active=True)
+    except models.ProductVariant.DoesNotExist:
+        return Response({"error": _("Product variant not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     # 1. Get current quantity in cart
     try:
@@ -280,7 +283,10 @@ def update_cart_item(request, item_id):
     except ValueError as e:
         return Response({"error": str(e)}, status=400)
 
-    cart_item = get_object_or_404(models.CartItem, id=item_id, cart=cart)
+    try:
+        cart_item = models.CartItem.objects.get(id=item_id, cart=cart)
+    except models.CartItem.DoesNotExist:
+        return Response({"error": _("Cart item not found.")}, status=status.HTTP_404_NOT_FOUND)
     new_quantity = int(request.data.get('quantity', 1))
 
     if new_quantity < 1:
@@ -304,7 +310,10 @@ def remove_from_cart(request, item_id):
     except ValueError as e:
         return Response({"error": str(e)}, status=400)
 
-    cart_item = get_object_or_404(models.CartItem, id=item_id, cart=cart)
+    try:
+        cart_item = models.CartItem.objects.get(id=item_id, cart=cart)
+    except models.CartItem.DoesNotExist:
+        return Response({"error": _("Cart item not found.")}, status=status.HTTP_404_NOT_FOUND)
     cart_item.delete()
     
     return Response(serializers.CartSerializer(cart).data)
@@ -369,7 +378,10 @@ def merge_cart(request):
 @transaction.atomic
 def place_order(request):
     # Lock the cart to prevent concurrent orders with the same items
-    cart = get_object_or_404(models.Cart.objects.select_for_update(), customer=request.user)
+    try:
+        cart = models.Cart.objects.select_for_update().get(customer=request.user)
+    except models.Cart.DoesNotExist:
+        return Response({"error": _("Cart not found.")}, status=status.HTTP_404_NOT_FOUND)
     if not cart.items.exists():
         return Response({"error": _("Cart is empty")}, status=400)
         
@@ -396,14 +408,14 @@ def place_order(request):
         # Check if active
         if not variant.is_active or not variant.product.is_active:
             return Response(
-                {"error": _(f"Sorry, {variant.product.name} ({variant.volume}) is no longer available.")}, 
+                {"error": _("Sorry, {product_name} ({volume}) is no longer available.").format(product_name=variant.product.name, volume=variant.volume)}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         # Check stock
         if variant.stock < item.quantity:
             return Response(
-                {"error": _(f"Product {variant.product.name} is out of stock. Only {variant.stock} left.")}, 
+                {"error": _("Product {product_name} is out of stock. Only {stock} left.").format(product_name=variant.product.name, stock=variant.stock)}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -580,7 +592,10 @@ def toggle_wishlist(request):
     Expects: { "product_id": 5 }
     """
     product_id = request.data.get('product_id')
-    product = get_object_or_404(models.Product, id=product_id)
+    try:
+        product = models.Product.objects.get(id=product_id)
+    except models.Product.DoesNotExist:
+        return Response({"error": _("Product not found.")}, status=status.HTTP_404_NOT_FOUND)
     
     wishlist = models.WishList.objects.filter(customer=request.user).first()
     if not wishlist:
@@ -1175,7 +1190,10 @@ def manage_categories(request):
 @permission_classes([IsAdminUser])
 def manage_category_detail(request, pk):
     """Admin endpoint to edit or soft-delete a category."""
-    category = get_object_or_404(models.Category, id=pk)
+    try:
+        category = models.Category.objects.get(id=pk)
+    except models.Category.DoesNotExist:
+        return Response({"error": _("Category not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'PATCH':
         serializer = serializers.DashboardCategorySerializer(category, data=request.data, partial=True)
@@ -1218,8 +1236,10 @@ def promote_user_to_admin(request):
         )
 
     email = request.data.get('email')
-    user = get_object_or_404(models.User, email=email)
-
+    try:
+        user = models.User.objects.get(email=email)
+    except models.User.DoesNotExist:
+        return Response({"error": _("User with this email not found.")}, status=status.HTTP_404_NOT_FOUND)
     # 3. Promote
     if user.is_staff == False:
         user.is_staff = True
@@ -1227,7 +1247,7 @@ def promote_user_to_admin(request):
     else:
         return Response({"message":_("User is already an admin (Staff)")},status=status.HTTP_400_BAD_REQUEST)
 
-    return Response({"message": _(f"{user.full_name} is now an Admin (Staff).")})
+    return Response({"message": _("{user_name} is now an Admin (Staff).").format(user_name=user.full_name)})
 
 
 
@@ -1343,7 +1363,10 @@ def get_all_reviews(request):
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAdminUser])
 def order_detail_action(request, pk):
-    order = get_object_or_404(models.Order.objects.prefetch_related('items__variant'), id=pk)
+    try:
+        order = models.Order.objects.prefetch_related('items__variant').get(id=pk)
+    except models.Order.DoesNotExist:
+        return Response({"error": _("Order not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
         serializer = serializers.DashBoardOrderSerializer(order)
@@ -1387,7 +1410,10 @@ def create_product_api(request):
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def add_variants_to_product_api(request, product_id):
-    product = get_object_or_404(models.Product, id=product_id)
+    try:
+        product = models.Product.objects.get(id=product_id)
+    except models.Product.DoesNotExist:
+        return Response({"error": _("Product not found.")}, status=status.HTTP_404_NOT_FOUND)
     
     # Check if bulk or single
     is_many = isinstance(request.data, list)
@@ -1419,7 +1445,10 @@ def upload_variant_image_api(request, variant_id):
     Optional Key 'is_thumbnail' (boolean string).
     """
     # 1. Get the variant
-    variant = get_object_or_404(models.ProductVariant, id=variant_id)
+    try:
+        variant = models.ProductVariant.objects.get(id=variant_id)
+    except models.ProductVariant.DoesNotExist:
+        return Response({"error": _("Product variant not found.")}, status=status.HTTP_404_NOT_FOUND)
     
     # 2. Check if file is present
     if 'img' not in request.FILES:
@@ -1455,7 +1484,10 @@ def delete_variant_image_api(request, image_id):
     """
     Deletes a specific product image by ID.
     """
-    image = get_object_or_404(models.ProductImage, id=image_id)
+    try:
+        image = models.ProductImage.objects.get(id=image_id)
+    except models.ProductImage.DoesNotExist:
+        return Response({"error": _("Product image not found.")}, status=status.HTTP_404_NOT_FOUND)
     image.delete()
     return Response({"message": _("Image deleted successfully.")}, status=status.HTTP_200_OK)
 
@@ -1465,7 +1497,10 @@ def set_variant_thumbnail_api(request, image_id):
     """
     Sets a specific image as the thumbnail.
     """
-    image = get_object_or_404(models.ProductImage, id=image_id)
+    try:
+        image = models.ProductImage.objects.get(id=image_id)
+    except models.ProductImage.DoesNotExist:
+        return Response({"error": _("Product image not found.")}, status=status.HTTP_404_NOT_FOUND)
     image.is_thumbnail = True
     image.save() # Custom save logic automatically unchecks other images for this variant
     return Response({"message": _("Thumbnail set successfully.")}, status=status.HTTP_200_OK)
@@ -1476,7 +1511,10 @@ def set_variant_thumbnail_api(request, image_id):
 @api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAdminUser])
 def dashboard_product_detail_api(request, pk):
-    product = get_object_or_404(models.Product, id=pk)
+    try:
+        product = models.Product.objects.get(id=pk)
+    except models.Product.DoesNotExist:
+        return Response({"error": _("Product not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     # --- DELETE LOGIC ---
     if request.method == 'DELETE':
@@ -1519,7 +1557,10 @@ def dashboard_product_detail_api(request, pk):
 @api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAdminUser])
 def dashboard_variant_detail_api(request, variant_id):
-    variant = get_object_or_404(models.ProductVariant, id=variant_id)
+    try:
+        variant = models.ProductVariant.objects.get(id=variant_id)
+    except models.ProductVariant.DoesNotExist:
+        return Response({"error": _("Product variant not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     # --- DELETE LOGIC ---
     if request.method == 'DELETE':
@@ -1786,7 +1827,10 @@ def manage_banners(request):
 @permission_classes([IsAdminUser])
 def manage_banner_detail(request, pk):
     """Admin dashboard endpoint to update, delete, or fetch a particular banner."""
-    banner = get_object_or_404(models.Banner, id=pk)
+    try:
+        banner = models.Banner.objects.get(id=pk)
+    except models.Banner.DoesNotExist:
+        return Response({"error": _("Banner not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
         serializer = serializers.DashboardBannerSerializer(banner)
@@ -1869,7 +1913,10 @@ def manage_governorates(request):
 @permission_classes([IsAdminUser])
 def manage_governorate_detail(request, pk):
     """Admin endpoint to edit or soft-delete a governorate."""
-    governorate = get_object_or_404(models.Governorate, id=pk)
+    try:
+        governorate = models.Governorate.objects.get(id=pk)
+    except models.Governorate.DoesNotExist:
+        return Response({"error": _("Governorate not found.")}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'PATCH':
         serializer = serializers.DashboardGovernorateSerializer(governorate, data=request.data, partial=True)
