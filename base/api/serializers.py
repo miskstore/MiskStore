@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 class GetAllProductListSerializer(serializers.ModelSerializer):
     # We will calculate these in the View using SQL annotations for speed
     lowest_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    highest_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     average_rating = serializers.FloatField(read_only=True)
     review_count = serializers.IntegerField(read_only=True)
     categories = serializers.SerializerMethodField()
@@ -17,6 +18,7 @@ class GetAllProductListSerializer(serializers.ModelSerializer):
             'name', 
             'categories', 
             'lowest_price', # e.g., "From $10.00"
+            'highest_price',
             'average_rating', 
             'review_count',
             'thumbnail', 

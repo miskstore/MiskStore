@@ -104,6 +104,7 @@ def get_all_products(request):
         # ADMIN VIEW: Show everything
         queryset = models.Product.objects.annotate(
             lowest_price=Min('variants__price'),
+            highest_price=Max('variants__price'),
             average_rating=Avg('reviews__rating'),
             review_count=Count('reviews', distinct=True)
         ).prefetch_related('categories',
@@ -113,6 +114,7 @@ def get_all_products(request):
         # CUSTOMER VIEW: Hide inactive products and variants
         queryset = models.Product.objects.filter(is_active=True).annotate(
             lowest_price=Min('variants__price'),
+            highest_price=Max('variants__price'),
             average_rating=Avg('reviews__rating'),
             review_count=Count('reviews', distinct=True)
         ).prefetch_related('categories',
@@ -574,6 +576,7 @@ def get_wishlist(request):
         wishlist = models.WishList.objects.prefetch_related(
             Prefetch('products', queryset=models.Product.objects.filter(is_active=True).annotate(
                 lowest_price=Min('variants__price'),
+                highest_price=Max('variants__price'),
                 average_rating=Avg('reviews__rating'),
                 review_count=Count('reviews', distinct=True)
             ).prefetch_related(

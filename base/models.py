@@ -64,6 +64,9 @@ class Banner(models.Model):
 
     class Meta:
         ordering = ['order', '-created_at']
+        indexes = [
+            models.Index(fields=['order', '-created_at']),
+        ]
 
     def __str__(self):
         return self.title
@@ -183,7 +186,7 @@ class ProductVariant(models.Model):
 class ProductImage(models.Model):
     variant = models.ForeignKey(ProductVariant, related_name='images', on_delete=models.CASCADE)
     img = CloudinaryField("products/",null=True)
-    is_thumbnail = models.BooleanField(default=False)
+    is_thumbnail = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         ordering = ['-is_thumbnail', 'id']
@@ -201,7 +204,7 @@ class Review(models.Model):
     product = models.ForeignKey(Product,on_delete=models.CASCADE,related_name='reviews')
     rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])  #1–5 stars
     comment = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         unique_together = ("product", "customer")  # one review per customer per product
@@ -224,7 +227,7 @@ class WishList(models.Model):
 class Order(DirtyFieldsMixin,models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     customer = models.ForeignKey(User,on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     # Biling details
     full_name = models.CharField(max_length=200)
@@ -249,7 +252,7 @@ class Order(DirtyFieldsMixin,models.Model):
     ("cancelled", "Cancelled"),
 ]
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
  
     def __str__(self):
         return str(self.id)
@@ -264,7 +267,7 @@ class OrderItem(models.Model):
     variant = models.ForeignKey(ProductVariant,on_delete=models.SET_NULL, null=True)
     quantity = models.PositiveIntegerField(default=1)
     price = models.DecimalField(max_digits=8,decimal_places=2,blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     @property
     def subtotal(self): # for each item not whole order
@@ -316,7 +319,7 @@ class Payment(models.Model):
 class Cart(models.Model):
     customer = models.ForeignKey(User,on_delete=models.CASCADE,null=True,blank=True)
 
-    device_id = models.CharField(max_length=255, null=True, blank=True)
+    device_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
