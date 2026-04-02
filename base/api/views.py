@@ -131,7 +131,10 @@ def get_all_products(request):
 
     category = request.query_params.get('category', None)
     if category:
-        queryset = queryset.filter(categories__name__iexact=category).distinct()
+        category_list = [cat.strip() for cat in category.split(',')]
+        for cat in category_list:
+            queryset = queryset.filter(categories__name__iexact=cat)
+        queryset = queryset.distinct()
 
     min_price = request.query_params.get('min_price', None)
     max_price = request.query_params.get('max_price', None)
