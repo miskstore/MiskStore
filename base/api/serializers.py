@@ -406,24 +406,40 @@ class DashboardVariantUpdateSerializer(serializers.ModelSerializer):
         return attrs
 
 class BannerSerializer(serializers.ModelSerializer):
-    img_url = serializers.SerializerMethodField()
-    def get_img_url(self, obj):
-        if obj.image:
-            return obj.image.url
+    desktop_img_url = serializers.SerializerMethodField()
+    mobile_img_url = serializers.SerializerMethodField()
+    
+    def get_desktop_img_url(self, obj):
+        if obj.desktop_image:
+            return getattr(obj.desktop_image, 'url', None)
         return None
+        
+    def get_mobile_img_url(self, obj):
+        if obj.mobile_image:
+            return getattr(obj.mobile_image, 'url', None)
+        return None
+        
     class Meta:
         model = models.Banner
-        fields = ['id', 'title', 'image','img_url', 'link', 'is_active', 'order', 'created_at']
+        fields = ['id', 'title', 'desktop_image', 'mobile_image', 'desktop_img_url', 'mobile_img_url', 'link', 'is_active', 'order', 'created_at']
 
 class DashboardBannerSerializer(serializers.ModelSerializer):
-    img_url = serializers.SerializerMethodField()
-    def get_img_url(self, obj):
-        if obj.image:
-            return obj.image.url
+    desktop_img_url = serializers.SerializerMethodField()
+    mobile_img_url = serializers.SerializerMethodField()
+    
+    def get_desktop_img_url(self, obj):
+        if obj.desktop_image:
+            return getattr(obj.desktop_image, 'url', None)
         return None
+        
+    def get_mobile_img_url(self, obj):
+        if obj.mobile_image:
+            return getattr(obj.mobile_image, 'url', None)
+        return None
+        
     class Meta:
         model = models.Banner
-        fields = ['id', 'title_en', 'title_ar', 'image','img_url', 'link', 'is_active', 'order', 'created_at']
+        fields = ['id', 'title_en', 'title_ar', 'desktop_image', 'mobile_image', 'desktop_img_url', 'mobile_img_url', 'link', 'is_active', 'order', 'created_at']
 
     def create(self, validated_data):
         if not validated_data.get('title_ar'):

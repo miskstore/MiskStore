@@ -56,7 +56,8 @@ class Governorate(models.Model):
 
 class Banner(models.Model):
     title = models.CharField(max_length=200)
-    image = CloudinaryField("banners/", null=True)
+    desktop_image = CloudinaryField("banners/", null=True)
+    mobile_image = CloudinaryField("banners/mobile/", null=True, blank=True)
     link = models.URLField(max_length=500, blank=True, default="")
     is_active = models.BooleanField(default=True)
     order = models.IntegerField(default=0, help_text="Order in which banner appears (lower numbers first)")

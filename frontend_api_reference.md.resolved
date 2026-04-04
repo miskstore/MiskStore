@@ -349,8 +349,10 @@ Fetches all currently active banners for the storefront hero carousel, ordered b
   {
     "id": 1,
     "title": "Summer Sale",
-    "image": "image/upload/v1/banners/xyzz...",
-    "img_url": "https://res.cloudinary.com/.../banners/xyzz...",
+    "desktop_image": "image/upload/v1/banners/xyzz...",
+    "mobile_image": "image/upload/v1/banners/mobile/abcc...",
+    "desktop_img_url": "https://res.cloudinary.com/.../banners/xyzz...",
+    "mobile_img_url": "https://res.cloudinary.com/.../banners/mobile/abcc...",
     "link": "https://example.com/summer-sale",
     "is_active": true,
     "order": 1,
@@ -363,7 +365,7 @@ Fetches all currently active banners for the storefront hero carousel, ordered b
 Fetches all banners, including inactive ones, for the admin dashboard.
 
 ### `POST /api/dashboard/banners/` (Admin)
-Creates a new banner. Note that you must send this request as `multipart/form-data` to handle the `image` file upload. Because of the Multi-Language update, instead of sending `title`, append `title_en` and `title_ar` to your FormData.
+Creates a new banner. Note that you must send this request as `multipart/form-data` to handle the file uploads. Because of the Multi-Language update, instead of sending `title`, append `title_en` and `title_ar` to your FormData.
 ```json
 {
   "title_en": "New Arrival Promotion",
@@ -373,7 +375,7 @@ Creates a new banner. Note that you must send this request as `multipart/form-da
   "is_active": true
 }
 ```
-*Plus an `image` File Blob in the FormData object.*
+*Plus `desktop_image` (required) and `mobile_image` (optional) File Blobs in the FormData object.*
 
 ### `PATCH /api/dashboard/banners/<banner_id>/` (Admin)
 Updates a specific banner. Common use cases are toggling the `is_active` status or changing the `order` using typical JSON payloads. **(Multi-Language Supported for Title)**
@@ -387,7 +389,7 @@ Updates a specific banner. Common use cases are toggling the `is_active` status 
 ```
 
 ### `DELETE /api/dashboard/banners/<banner_id>/` (Admin)
-Permanently deletes the banner and its associated image from the database.
+Permanently deletes the banner and its associated images from the database.
 
 ---
 
