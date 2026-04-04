@@ -204,7 +204,7 @@ class CreateReviewSerializer(serializers.ModelSerializer):
         # Unique check is enforced at DB level, but good to validate here too
         request = self.context.get('request')
         if models.Review.objects.filter(customer=request.user, product=data['product']).exists():
-            raise serializers.ValidationError("You have already reviewed this product.")
+            raise serializers.ValidationError(_("You have already reviewed this product."))
         return data
 
 class WishlistSerializer(serializers.ModelSerializer):

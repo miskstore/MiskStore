@@ -233,7 +233,7 @@ def get_cart_from_request(request):
     else:
         device_id = request.headers.get('X-Device-ID')
         if not device_id:
-            raise ValueError("No Device ID provided for guest cart.")
+            raise ValueError(_("No Device ID provided for guest cart."))
         
         cart = models.Cart.objects.filter(device_id=device_id, customer__isnull=True).first()
         if not cart:
@@ -775,7 +775,7 @@ def capture_paypal_order(request):
                     # "Subtract quantity from current DB value"
                     variant = item.variant
                     if variant.stock < item.quantity:
-                        raise ValueError(f"Insufficient stock for {variant}")
+                        raise ValueError(_("Insufficient stock for {variant}").format(variant=variant))
                     item.variant.stock = F('stock') - item.quantity
                     item.variant.save()
 
