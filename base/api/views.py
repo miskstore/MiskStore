@@ -179,7 +179,7 @@ def get_product_detail(request, pk):
             # ADMIN VIEW: Fetch the product and ALL of its variants, even if deactivated
             product = models.Product.objects.prefetch_related(
                 'categories',
-                Prefetch('variants', queryset=models.ProductVariant.objects.prefetch_related('images'))
+                Prefetch('variants', queryset=models.ProductVariant.objects.select_related('product').prefetch_related('images', 'product__categories'))
             ).get(pk=pk) # <-- Removed is_active=True here
             serializer = serializers.DashboardProductDetailSerializer(product)
             
@@ -187,7 +187,7 @@ def get_product_detail(request, pk):
             # CUSTOMER VIEW: Strictly filter for active product and active variants
             product = models.Product.objects.prefetch_related(
                 'categories',
-                Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
+                Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).select_related('product').prefetch_related('images', 'product__categories'))
             ).get(pk=pk, is_active=True)
             serializer = serializers.ProductDetailSerializer(product)
 
@@ -225,8 +225,9 @@ def get_best_sellers(request):
 ## HELPER FUNCTION
 def get_cart_from_request(request):
     """Helper to fetch or create a cart based on User Auth or Device ID."""
+    prefetch = Prefetch('items', queryset=models.CartItem.objects.select_related('variant__product').prefetch_related('variant__images', 'variant__product__categories'))
     if request.user.is_authenticated:
-        cart = models.Cart.objects.filter(customer=request.user).first()
+        cart = models.Cart.objects.prefetch_related(prefetch).filter(customer=request.user).first()
         if not cart:
             cart = models.Cart.objects.create(customer=request.user)
         return cart
@@ -235,7 +236,7 @@ def get_cart_from_request(request):
         if not device_id:
             raise ValueError(_("No Device ID provided for guest cart."))
         
-        cart = models.Cart.objects.filter(device_id=device_id, customer__isnull=True).first()
+        cart = models.Cart.objects.prefetch_related(prefetch).filter(device_id=device_id, customer__isnull=True).first()
         if not cart:
             cart = models.Cart.objects.create(device_id=device_id)
         return cart
@@ -298,6 +299,7 @@ def add_to_cart(request):
             price=variant.price
         )
 
+    cart = get_cart_from_request(request)
     return Response(serializers.CartSerializer(cart).data, status=200)
 
 
@@ -325,6 +327,7 @@ def update_cart_item(request, item_id):
     cart_item.quantity = new_quantity
     cart_item.save()
     
+    cart = get_cart_from_request(request)
     return Response(serializers.CartSerializer(cart).data)
 
 
@@ -342,6 +345,7 @@ def remove_from_cart(request, item_id):
         return Response({"error": _("Cart item not found.")}, status=status.HTTP_404_NOT_FOUND)
     cart_item.delete()
     
+    cart = get_cart_from_request(request)
     return Response(serializers.CartSerializer(cart).data)
 
 
@@ -428,7 +432,8 @@ def place_order(request):
         return Response(serializer.errors, status=400)
 
     # --- 1. THE PRE-CHECK LOOP (Validate BEFORE touching the database) ---
-    for item in cart.items.select_related('variant__product'):
+    prefetched_items = list(cart.items.select_related('variant__product'))
+    for item in prefetched_items:
         variant = item.variant
         
         # Check if active
@@ -472,7 +477,7 @@ def place_order(request):
     )
 
     # --- 4. CREATE ORDER ITEMS ---
-    for item in cart.items.all():
+    for item in prefetched_items:
         models.OrderItem.objects.create(
             order=order,
             variant=item.variant,
@@ -483,7 +488,7 @@ def place_order(request):
     # --- 5. COD vs ONLINE PAYMENT ---
     if payment_method == 'cod':
         # COD: Deduct stock, clear cart, create Payment, keep status "pending"
-        for item in order.items.select_related('variant'):
+        for item in prefetched_items:
             item.variant.stock = F('stock') - item.quantity
             item.variant.save()
 
@@ -545,6 +550,7 @@ def get_my_orders(request):
     # 2. Main Query
     orders = models.Order.objects.filter(customer=request.user)\
         .order_by('-created_at')\
+        .select_related('governorate')\
         .prefetch_related(items_prefetch) # <--- This magic line fixes the N+1
 
     serializer = serializers.OrderSerializer(orders, many=True)
@@ -604,6 +610,7 @@ def get_wishlist(request):
                 average_rating=Avg('reviews__rating'),
                 review_count=Count('reviews', distinct=True)
             ).prefetch_related(
+                'categories',
                 Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).prefetch_related('images'))
             ))
         ).get(customer=request.user)
@@ -760,7 +767,7 @@ def capture_paypal_order(request):
             # --- DATABASE UPDATES (ATOMIC) ---
             with transaction.atomic():
                 # 1. Lock the order row to prevent race conditions
-                order = models.Order.objects.select_for_update().get(id=django_order_id)
+                order = models.Order.objects.select_for_update().prefetch_related('items__variant').get(id=django_order_id)
 
                 # 2. Prevent double-payment processing
                 if order.status == 'paid':
@@ -822,7 +829,9 @@ def create_checkout_session(request):
         return Response({"error": _("order_id is required")}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        order = models.Order.objects.get(id=order_id, customer=user)
+        order = models.Order.objects.prefetch_related(
+            Prefetch('items', queryset=models.OrderItem.objects.select_related('variant__product'))
+        ).get(id=order_id, customer=user)
     except models.Order.DoesNotExist:
         return Response({"error": _("Order not found")}, status=status.HTTP_404_NOT_FOUND)
     
@@ -960,7 +969,9 @@ def paymob_checkout(request):
         return Response({"error": _("order_id is required")}, status=status.HTTP_400_BAD_REQUEST)
         
     try:
-        order = models.Order.objects.get(id=order_id, customer=request.user)
+        order = models.Order.objects.select_related('governorate').prefetch_related(
+            Prefetch('items', queryset=models.OrderItem.objects.select_related('variant__product'))
+        ).get(id=order_id, customer=request.user)
     except models.Order.DoesNotExist:
         return Response({"error": _("Order not found")}, status=status.HTTP_404_NOT_FOUND)
         
@@ -1300,11 +1311,11 @@ def promote_user_to_admin(request):
 def get_latest_orders(request):
     orders = (
     models.Order.objects
-    .select_related('customer') # fixes customer.email
+    .select_related('customer', 'payment', 'governorate') # fixes customer.email
     .prefetch_related(
         Prefetch(
             'items',
-            queryset=models.OrderItem.objects.select_related('variant')
+            queryset=models.OrderItem.objects.select_related('variant__product')
         )
     )
     .order_by('-created_at')
@@ -1408,7 +1419,9 @@ def get_all_reviews(request):
 @permission_classes([IsAdminUser])
 def order_detail_action(request, pk):
     try:
-        order = models.Order.objects.prefetch_related('items__variant').get(id=pk)
+        order = models.Order.objects.select_related('customer', 'governorate', 'payment').prefetch_related(
+            Prefetch('items', queryset=models.OrderItem.objects.select_related('variant__product'))
+        ).get(id=pk)
     except models.Order.DoesNotExist:
         return Response({"error": _("Order not found.")}, status=status.HTTP_404_NOT_FOUND)
 
