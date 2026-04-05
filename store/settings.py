@@ -108,6 +108,7 @@ DATABASES = {
 'default': dj_database_url.config(
     engine='django.db.backends.postgresql',
     default=os.environ.get('DATABASE_URL'),
+    conn_max_age=60,
     )
 }
 

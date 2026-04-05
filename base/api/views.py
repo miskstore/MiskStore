@@ -23,6 +23,7 @@ from django.db import IntegrityError
 from . import serializers
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.cache import cache_page
 from decimal import Decimal
 from rest_framework.pagination import PageNumberPagination
 from django.db import connection
@@ -1907,6 +1908,7 @@ def manage_banner_detail(request, pk):
 # --- SITE SETTINGS API ---
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@cache_page(60 * 15)
 def get_site_settings(request):
     """Public endpoint to fetch all global site configurations like the top announcement bar."""
     settings_obj = models.SiteSettings.load()
