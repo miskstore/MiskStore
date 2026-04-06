@@ -339,7 +339,14 @@ Uploads an image for the variant.
 
 ---
 
-## 7. Banner Management (`/api/banners/` & `/api/dashboard/banners/`)
+## 7. Products (Public)
+
+### `GET /api/products/top-selling-overall/`
+Fetches the absolute highest-selling product locally evaluated based on historical order amounts. Returns a single product object preloaded with its full variant capabilities and a `sales_count` property.
+
+---
+
+## 8. Banner Management (`/api/banners/` & `/api/dashboard/banners/`)
 
 ### `GET /api/banners/` (Public)
 Fetches all currently active banners for the storefront hero carousel, ordered by the `order` field.
@@ -393,7 +400,7 @@ Permanently deletes the banner and its associated images from the database.
 
 ---
 
-## 8. Site Settings (`/api/settings/` & `/api/dashboard/settings/`)
+## 9. Site Settings (`/api/settings/` & `/api/dashboard/settings/`)
 
 ### `GET /api/settings/` (Public)
 Fetches the global site configurations, such as the top announcement bar text. Call this once when the application boots up to display the top bar.

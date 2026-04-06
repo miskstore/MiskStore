@@ -15,6 +15,7 @@ urlpatterns = [
     # # Product
     path('products/',views.get_all_products),
     path('products/best-sellers/', views.get_best_sellers, name='best-sellers'),
+    path('products/top-selling-overall/', views.get_top_selling_product_overall, name='top-selling-overall'),
     path('products/<str:pk>/',views.get_product_detail),
     
     # # Cart

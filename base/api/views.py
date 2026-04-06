@@ -166,7 +166,7 @@ def get_all_products(request):
     )
 
     # 3. Apply Pagination
-    queryset = queryset.order_by('-sales_count', '-created_at')
+    queryset = queryset.order_by('-created_at')
     paginator = ProductPagination()
     result_page = paginator.paginate_queryset(queryset, request)
     
@@ -224,6 +224,32 @@ def get_best_sellers(request):
     return Response(serializer.data)
 
 
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_top_selling_product_overall(request):
+    """
+    Returns the absolute best-selling product based on historic order item sales,
+    including its variant details.
+    """
+    sales_subquery = models.OrderItem.objects.filter(
+        variant__product_id=OuterRef('pk')
+    ).values('variant__product_id').annotate(
+        total=Sum('quantity')
+    ).values('total')
+
+    top_product = models.Product.objects.filter(is_active=True).annotate(
+        sales_count=Coalesce(Subquery(sales_subquery), Value(0))
+    ).order_by('-sales_count').prefetch_related(
+        'categories',
+        Prefetch('variants', queryset=models.ProductVariant.objects.filter(is_active=True).select_related('product').prefetch_related('images', 'product__categories'))
+    ).first()
+
+    if not top_product:
+        return Response({"error": _("No products found")}, status=status.HTTP_404_NOT_FOUND)
+
+    serializer = serializers.ProductDetailSerializer(top_product)
+    return Response(serializer.data)
 
 
 ############################# Cart
