@@ -242,11 +242,9 @@ msgid "Category updated"
 msgstr "تم تحديث الفئة"
 
 #: .\base\api\views.py:1256
-msgid ""
-"Cannot delete this category because it is assigned to products. Please "
-"deactivate it instead."
-msgstr ""
-"لا يمكن حذف هذه الفئة لأنها مرتبطة بمنتجات. يرجى إلغاء تنشيطها بدلاً من ذلك."
+msgid "Cannot delete this category because it is assigned to products. Please deactivate it instead."
+msgstr "لا يمكن حذف هذه الفئة لأنها مرتبطة بمنتجات. يرجى إلغاء تنشيطها بدلاً من ذلك."
+
 
 #: .\base\api\views.py:1260
 msgid "Category permanently deleted."
@@ -306,12 +304,8 @@ msgid "Thumbnail set successfully."
 msgstr "تم تعيين الصورة المصغرة بنجاح"
 
 #: .\base\api\views.py:1574
-msgid ""
-"Cannot hard delete this product because one or more of its variants exist in "
-"customer orders. Please deactivate it instead."
-msgstr ""
-"لا يمكن حذف هذا المنتج بشكل دائم لأن واحدًا أو أكثر من عناصره موجود في طلبات "
-"العملاء. يرجى إلغاء تنشيطه بدلاً من ذلك."
+msgid "Cannot hard delete this product because one or more of its variants exist in customer orders. Please deactivate it instead."
+msgstr "لا يمكن حذف هذا المنتج بشكل دائم لأن واحدًا أو أكثر من عناصره موجود في طلبات العملاء. يرجى إلغاء تنشيطه بدلاً من ذلك."
 
 #: .\base\api\views.py:1579
 msgid "Product permanently deleted."
@@ -326,12 +320,9 @@ msgid "Product updated"
 msgstr "تم تحديث المنتج"
 
 #: .\base\api\views.py:1619
-msgid ""
-"Cannot hard delete this variant because it exists in customer orders. Please "
-"deactivate it instead."
-msgstr ""
-"لا يمكن حذف هذا العنصر بشكل دائم لأن واحدًا أو أكثر من عناصره موجود في طلبات "
-"العملاء. يرجى إلغاء تنشيطه بدلاً من ذلك."
+msgid "Cannot hard delete this variant because it exists in customer orders. Please deactivate it instead."
+msgstr "لا يمكن حذف هذا العنصر بشكل دائم لأن واحدًا أو أكثر من عناصره موجود في طلبات العملاء. يرجى إلغاء تنشيطه بدلاً من ذلك."
+
 
 #: .\base\api\views.py:1625
 msgid "Variant permanently deleted."
@@ -370,12 +361,9 @@ msgid "Governorate updated"
 msgstr "تم تحديث المحافظة."
 
 #: .\base\api\views.py:1978
-msgid ""
-"Cannot delete this governorate because it is referenced by existing orders. "
-"Please deactivate it instead."
-msgstr ""
-"لا يمكن حذف هذه المحافظة لأنها مرتبطة بطلبات حالية. يرجى إلغاء تنشيطها بدلاً "
-"من ذلك."
+msgid "Cannot delete this governorate because it is referenced by existing orders. Please deactivate it instead."
+msgstr "لا يمكن حذف هذه المحافظة لأنها مرتبطة بطلبات حالية. يرجى إلغاء تنشيطها بدلاً من ذلك."
+
 
 #: .\base\api\views.py:1982
 msgid "Governorate permanently deleted."
