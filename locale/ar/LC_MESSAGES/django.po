@@ -117,7 +117,7 @@ msgstr "السلة فارغة"
 
 #: .\base\api\views.py:422
 msgid "Please wait a moment before placing another order."
-msgstr "يرجى الانتظار لحظات قبل تقديم طلب آخر."
+msgstr "يرجى الانتظار لحظات (10 ثواني) قبل تقديم طلب آخر."
 
 #: .\base\api\views.py:437
 #, python-brace-format

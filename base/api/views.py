@@ -450,7 +450,7 @@ def place_order(request):
     # Prevent double submission from quick multiple clicks
     recent_order = models.Order.objects.filter(
         customer=request.user,
-        created_at__gte=timezone.now() - timedelta(seconds=30)
+        created_at__gte=timezone.now() - timedelta(seconds=10)
     ).exists()
 
     if recent_order:
@@ -1359,6 +1359,7 @@ def get_latest_orders(request):
         orders = orders.filter(
             Q(customer__email__icontains=search_query) |
             Q(phone_number__icontains=search_query) |
+            Q(order_id__icontains=search_query) |
             Q(full_name__icontains=search_query)
         )
 
