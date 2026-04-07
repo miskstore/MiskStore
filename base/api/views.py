@@ -1350,6 +1350,7 @@ def get_latest_orders(request):
             queryset=models.OrderItem.objects.select_related('variant__product')
         )
     )
+    .exclude(status='awaiting_payment')
     .order_by('-created_at')
 )
 
