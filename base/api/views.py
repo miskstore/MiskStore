@@ -1359,7 +1359,7 @@ def get_latest_orders(request):
         orders = orders.filter(
             Q(customer__email__icontains=search_query) |
             Q(phone_number__icontains=search_query) |
-            Q(order_id__icontains=search_query) |
+            Q(id__icontains=search_query) |
             Q(full_name__icontains=search_query)
         )
 
