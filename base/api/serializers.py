@@ -201,10 +201,22 @@ class CreateReviewSerializer(serializers.ModelSerializer):
         fields = ['product', 'rating', 'comment']
 
     def validate(self, data):
-        # Unique check is enforced at DB level, but good to validate here too
         request = self.context.get('request')
+
+        # 1. Check the user hasn't already reviewed this product
         if models.Review.objects.filter(customer=request.user, product=data['product']).exists():
             raise serializers.ValidationError(_("You have already reviewed this product."))
+
+        # 2. Check the user has a DELIVERED order containing this product
+        has_purchased = models.OrderItem.objects.filter(
+            order__customer=request.user,
+            order__status='delivered',
+            variant__product=data['product']
+        ).exists()
+
+        if not has_purchased:
+            raise serializers.ValidationError(_("You can only review products you have purchased and received."))
+
         return data
 
 class WishlistSerializer(serializers.ModelSerializer):
