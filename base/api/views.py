@@ -1513,12 +1513,16 @@ def order_detail_action(request, pk):
         if serializer.is_valid():
             new_status = serializer.validated_data.get('status')
 
-            # Restore stock when refunding
-            if new_status == 'refunded':
-                for item in order.items.select_related('variant'):
-                    if item.variant:
-                        item.variant.stock = F('stock') + item.quantity
-                        item.variant.save()
+            # Restore stock when refunding or cancelling
+            if new_status in ('refunded', 'cancelled'):
+                # Only restore if:
+                # 1. The OLD status wasn't already refunded or cancelled (prevent double restoration)
+                # 2. The order wasn't stuck in 'awaiting_payment' (where stock is never deducted)
+                if order.status not in ('refunded', 'cancelled', 'awaiting_payment'):
+                    for item in order.items.select_related('variant'):
+                        if item.variant:
+                            item.variant.stock = F('stock') + item.quantity
+                            item.variant.save()
 
             serializer.save()
             return Response({'message': _('Status updated'), 'status': order.status})
