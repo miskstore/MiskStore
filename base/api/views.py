@@ -594,9 +594,9 @@ def place_order(request):
         }, status=201)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_my_orders(request):
-    """List all past orders for the logged-in user (Optimized)."""
+    """List all past orders for the logged-in user or guest (Optimized)."""
     
     items_prefetch = Prefetch(
         'items', 
@@ -604,10 +604,20 @@ def get_my_orders(request):
     )
 
     # 2. Main Query
-    orders = models.Order.objects.filter(customer=request.user)\
-        .order_by('-created_at')\
-        .select_related('governorate')\
-        .prefetch_related(items_prefetch) # <--- This magic line fixes the N+1
+    if request.user.is_authenticated:
+        orders = models.Order.objects.filter(customer=request.user)\
+            .order_by('-created_at')\
+            .select_related('governorate')\
+            .prefetch_related(items_prefetch) # <--- This magic line fixes the N+1
+    else:
+        device_id = request.headers.get('X-Device-ID')
+        if not device_id:
+            return Response({"error": _("Device ID is required to fetch guest orders.")}, status=400)
+            
+        orders = models.Order.objects.filter(device_id=device_id, customer__isnull=True)\
+            .order_by('-created_at')\
+            .select_related('governorate')\
+            .prefetch_related(items_prefetch)
 
     serializer = serializers.OrderSerializer(orders, many=True)
     return Response(serializer.data)
