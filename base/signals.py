@@ -34,10 +34,8 @@ class EmailThread(threading.Thread):
 
 @receiver(reset_password_token_created)
 def password_reset_token_created(sender, instance, reset_password_token, *args, **kwargs):
-    reset_password_url = "https://copymisk-ccax.vercel.app/ar/reset-password?token={}".format(
-        reset_password_token.key
-    )
-    
+    domain_url = os.environ.get('domain_url')
+    reset_password_url = f"{domain_url}/ar/reset-password?token={reset_password_token.key}"
     email_message = "اضغط هنا لإعادة تعيين كلمة المرور الخاصة بك: {}".format(reset_password_url)
     
     # Send email in background thread
