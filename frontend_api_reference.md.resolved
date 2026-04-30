@@ -180,20 +180,21 @@ Captures the paypal payment after the user approves it on the frontend.
 * `200 OK` (Message): `{"message": "Order already processed"}`
 
 ### `POST /api/payment/paymob/create-checkout/` (Paymob)
-Initiates a Paymob checkout session. Returns the iframe checkout UI URL.
+Initiates a Paymob Unified Checkout session. Returns the hosted checkout UI URL.
 ```json
 {
-  "order_id": "uuid-of-order-from-place-order"
+  "order_id": "uuid-of-order-from-place-order",
+  "payment_method": "card" // optional, defaults to "card". Can also be "wallet".
 }
 ```
 **Response Format:**
 ```json
 {
-  "url": "https://accept.paymob.com/api/acceptance/iframes/123456?payment_token=zxcasd...",
-  "payment_token": "zxcasd...",
-  "iframe_id": "123456"
+  "url": "https://accept.paymob.com/unifiedcheckout/?publicKey=...&clientSecret=..."
 }
 ```
+> **Frontend Handling:** 
+> Simply take the `url` from the response and redirect the user's browser to it (e.g. `window.location.href = response.data.url`). Paymob's Unified Checkout page will handle the rest of the payment flow securely.
 **Possible Errors:**
 * `400 Bad Request`: `{"error": "order_id is required"}`
 * `404 Not Found`: `{"error": "Order not found"}`

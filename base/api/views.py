@@ -1063,7 +1063,6 @@ import hashlib
 def paymob_checkout(request):
     order_id = request.data.get('order_id')
     payment_method = request.data.get('payment_method', 'card')
-    wallet_number = request.data.get('wallet_number')
     
     if not order_id:
         return Response({"error": _("order_id is required")}, status=status.HTTP_400_BAD_REQUEST)
@@ -1079,58 +1078,8 @@ def paymob_checkout(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # 1. Authentication Request
-    auth_response = requests.post(
-        "https://accept.paymob.com/api/auth/tokens",
-        json={"api_key": settings.PAYMOB_API_KEY}
-    )
-    if not auth_response.ok:
-        return Response({"error": _("Failed to authenticate with Paymob")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    token = auth_response.json().get('token')
-    
-    # 2. Order Registration Request
     amount_cents = int(order.total_price * 100)
     
-    order_data = {
-        "auth_token": token,
-        "delivery_needed": "false",
-        "amount_cents": str(amount_cents),
-        "currency": "EGP",
-        "merchant_order_id": f"{order.id}~{int(time.time())}", # To prevent duplicate keys in paymob
-        "items": []
-    }
-    
-    for item in order.items.all():
-        product_name = item.variant.product.name if hasattr(item, 'variant') else getattr(item, 'product', item).name if hasattr(item, 'product') else "Product"
-        order_data["items"].append({
-            "name": product_name,
-            "amount_cents": str(int(item.price * 100)),
-            "description": product_name,
-            "quantity": str(item.quantity)
-        })
-        
-    # Add shipping fee as a separate item for Paymob dashboard
-    if order.shipping_fee and order.shipping_fee > 0:
-        shipping_desc = f"Shipping to {order.governorate.name}" if order.governorate else "Shipping Fee"
-        order_data["items"].append({
-            "name": "Shipping Fee",
-            "amount_cents": str(int(order.shipping_fee * 100)),
-            "description": shipping_desc,
-            "quantity": "1"
-        })
-        
-    order_response = requests.post(
-        "https://accept.paymob.com/api/ecommerce/orders",
-        json=order_data
-    )
-    if not order_response.ok:
-        return Response({"error": _("Failed to register order with Paymob")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-    paymob_order_id = order_response.json().get('id')
-    
-    # 3. Payment Key Request
-    # Build billing data — use order data (works for both auth and guest)
     name_parts = order.full_name.split() if order.full_name else ['Guest']
     billing_email = (request.user.email if request.user.is_authenticated else order.guest_email) or 'na@na.com'
     billing_data = {
@@ -1148,62 +1097,63 @@ def paymob_checkout(request):
         "last_name": name_parts[-1] if len(name_parts) > 1 else "Guest", 
         "state": "NA"
     }
-    
+
     integration_id = getattr(settings, 'PAYMOB_WALLET_INTEGRATION_ID', None) if payment_method == 'wallet' else settings.PAYMOB_INTEGRATION_ID
     if payment_method == 'wallet' and not integration_id:
         return Response({"error": _("Wallet integration is not configured")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    payment_key_data = {
-        "auth_token": token,
-        "amount_cents": str(amount_cents), 
-        "expiration": 3600, 
-        "order_id": paymob_order_id,
-        "billing_data": billing_data,
-        "currency": "EGP", 
-        "integration_id": integration_id
-    }
-    
-    payment_key_response = requests.post(
-        "https://accept.paymob.com/api/acceptance/payment_keys",
-        json=payment_key_data
-    )
-    if not payment_key_response.ok:
-        return Response({"error": _("Failed to get payment key from Paymob")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    items = []
+    for item in order.items.all():
+        product_name = item.variant.product.name if hasattr(item, 'variant') else getattr(item, 'product', item).name if hasattr(item, 'product') else "Product"
+        items.append({
+            "name": product_name,
+            "amount": int(item.price * 100),
+            "description": product_name,
+            "quantity": item.quantity
+        })
         
-    payment_token = payment_key_response.json().get('token')
-    
-    # 4. Handle Final URL based on Payment Method
-    if payment_method == 'wallet':
-        if not wallet_number:
-            return Response({"error": _("Wallet number is required")}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # For wallets, explicitly request the Pay URL
-        pay_request = requests.post(
-            "https://accept.paymob.com/api/acceptance/payments/pay",
-            json={
-                "source": {
-                    "identifier": wallet_number,
-                    "subtype": "WALLET"
-                },
-                "payment_token": payment_token
-            }
-        )
-        if not pay_request.ok:
-            return Response({"error": _("Failed to initialize wallet payment")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-        redirect_url = pay_request.json().get('redirect_url')
-        return Response({"url": redirect_url})
-        
-    else:
-        # Construct the final Paymob iframe checkout URL
-        checkout_url = f"https://accept.paymob.com/api/acceptance/iframes/{settings.PAYMOB_IFRAME_ID}?payment_token={payment_token}"
-        
-        return Response({
-            "url": checkout_url,
-            "payment_token": payment_token,
-            "iframe_id": settings.PAYMOB_IFRAME_ID
+    if order.shipping_fee and order.shipping_fee > 0:
+        shipping_desc = f"Shipping to {order.governorate.name}" if order.governorate else "Shipping Fee"
+        items.append({
+            "name": "Shipping Fee",
+            "amount": int(order.shipping_fee * 100),
+            "description": shipping_desc,
+            "quantity": 1
         })
 
+    payload = {
+        "amount": amount_cents,
+        "currency": "EGP",
+        "payment_methods": [int(integration_id)] if integration_id else [],
+        "items": items,
+        "billing_data": billing_data,
+        "special_reference": f"{order.id}~{int(time.time())}"
+    }
+
+    headers = {
+        "Authorization": f"Token {settings.PAYMOB_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    intention_response = requests.post(
+        "https://accept.paymob.com/v1/intention/",
+        json=payload,
+        headers=headers
+    )
+    
+    if not intention_response.ok:
+        # return Response(intention_response.json())
+        return Response({"error": _("Failed to create payment intention with Paymob")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    client_secret = intention_response.json().get('client_secret')
+    if not client_secret:
+        return Response({"error": _("Failed to retrieve client secret from Paymob")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    checkout_url = f"https://accept.paymob.com/unifiedcheckout/?publicKey={settings.PAYMOB_PUBLIC_KEY}&clientSecret={client_secret}"
+
+    return Response({
+        "url": checkout_url
+    })
 @api_view(['POST']) 
 @permission_classes([AllowAny])
 def paymob_webhook(request):
@@ -1262,8 +1212,11 @@ def paymob_webhook(request):
         return Response({"error": _("Invalid HMAC signature")}, status=status.HTTP_401_UNAUTHORIZED)
         
     if obj.get('success') == True:
+        special_ref = obj.get('special_reference') or obj.get('payment_key_claims', {}).get('extra', {}).get('special_reference') or ''
         merchant_order_id = order_dict.get('merchant_order_id', '') if isinstance(order_dict, dict) else ''
-        django_order_id = merchant_order_id.split('~')[0] if '~' in merchant_order_id else merchant_order_id
+        
+        reference = special_ref or merchant_order_id
+        django_order_id = reference.split('~')[0] if '~' in reference else reference
         
         if django_order_id:
             try:
